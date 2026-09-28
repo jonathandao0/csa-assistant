@@ -1,0 +1,652 @@
+import { useMemo, useRef, useState } from 'react';
+import LedReference from '../components/LedReference.jsx';
+import PitMap from '../components/PitMap.jsx';
+import { Icon, Legend, Loading, ReadinessMarks, TeamBox, TicketRow, TopBar } from '../components/ui.jsx';
+import { db, useLive } from '../lib/db.js';
+import {
+  PRIORITY_WEIGHT,
+  READINESS_ITEMS,
+  dayCaption,
+  eventDay,
+  formatClock,
+  matchLabel,
+  matchTimeMs,
+  nexusTimesByMatchKey,
+  nextMatch,
+  readinessCount,
+  sortTickets,
+  teamColor,
+} from '../lib/logic.js';
+import { nav } from '../lib/router.js';
+import { syncEvent } from '../lib/sync.js';
+import { downloadBlob, toast } from '../lib/util.js';
+
+/** Loads everything an event screen needs and derives per-team status. */
+export function useEventContext(eventKey) {
+  const event = useLive(() => db.get('events', eventKey), [eventKey]);
+  const readinessList = useLive(async () => {
+    const all = await db.all('readiness');
+    return all.filter((r) => r.eventKey === eventKey);
+  }, [eventKey]);
+  const tickets = useLive(() => db.byIndex('tickets', 'eventKey', eventKey), [eventKey]);
+
+  return useMemo(() => {
+    if (event === undefined || !readinessList || !tickets) return { loading: true };
+    if (!event) return { missing: true };
+    const readiness = Object.fromEntries(readinessList.map((r) => [r.team, r]));
+    const openByTeam = {};
+    for (const t of tickets) {
+      if (t.status === 'unresolved') (openByTeam[t.team] ??= []).push(t);
+    }
+    const dayInfo = eventDay(event);
+    const colorFor = (team) =>
+      teamColor({ readiness: readiness[team], openTickets: openByTeam[team]?.length ?? 0, day: dayInfo.day });
+    return { event, readiness, tickets, openByTeam, dayInfo, colorFor };
+  }, [event, readinessList, tickets]);
+}
+
+export async function toggleReadiness(eventKey, team, item, current) {
+  const id = `${eventKey}:${team}`;
+  const prev = current ?? { id, eventKey, team, radio: false, inspection: false, field: false };
+  await db.put('readiness', { ...prev, [item]: !prev[item], updatedAt: Date.now() });
+}
+
+/** Marks a team as not present so it always shows black and drops out of the priority list. */
+export async function setIgnored(eventKey, team, ignored, current) {
+  const id = `${eventKey}:${team}`;
+  const prev = current ?? { id, eventKey, team, radio: false, inspection: false, field: false };
+  await db.put('readiness', { ...prev, ignored, updatedAt: Date.now() });
+}
+
+export default function EventPage({ eventKey, tab }) {
+  const ctx = useEventContext(eventKey);
+  const [syncing, setSyncing] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  if (ctx.loading) return <Loading />;
+  if (ctx.missing) {
+    return (
+      <>
+        <TopBar title="Event not found" back={() => nav('/')} />
+        <main className="page">
+          <p>{eventKey} isn't in your list. It may have been removed.</p>
+          <button className="btn primary" onClick={() => nav('/')}>Back to events</button>
+        </main>
+      </>
+    );
+  }
+
+  const { event, dayInfo } = ctx;
+  const hasMap = !!event.nexus?.map?.pits && Object.keys(event.nexus.map.pits).length > 0;
+  const tabs = hasMap
+    ? [['map', 'Pit map'], ['today', 'Priority list'], ['teams', 'Teams'], ['tickets', 'Tickets'], ['ref', 'Reference']]
+    : [['teams', 'Teams'], ['today', 'Priority list'], ['tickets', 'Tickets'], ['map', 'Pit map'], ['ref', 'Reference']];
+  const active = tabs.some(([k]) => k === tab) ? tab : tabs[0][0];
+
+  async function refresh() {
+    setSyncing(true);
+    try {
+      await syncEvent(event.key);
+      toast('Event data refreshed');
+    } catch (e) {
+      toast(e.message);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function exportReport() {
+    setExporting(true);
+    try {
+      const { buildEventReport } = await import('../lib/report.js');
+      const all = await db.all('tickets');
+      const blob = await buildEventReport(event, ctx.tickets, all);
+      downloadBlob(blob, `CSA report ${event.key}.docx`);
+      toast('Report downloaded');
+    } catch (e) {
+      toast(`Report failed: ${e.message}`);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  return (
+    <>
+      <TopBar
+        title={event.shortName}
+        subtitle={`${dayCaption(dayInfo)} · ${event.key}`}
+        back={() => nav('/')}
+        actions={
+          <>
+            <button className={`icon-btn${syncing ? ' spin' : ''}`} aria-label="Refresh event data"
+              onClick={refresh} disabled={syncing}>
+              <Icon name="refresh" />
+            </button>
+            <button className="icon-btn" aria-label="Export Word report" onClick={exportReport} disabled={exporting}>
+              <Icon name="report" />
+            </button>
+          </>
+        }
+      >
+        <nav className="tabs" role="tablist">
+          {tabs.map(([k, label]) => (
+            <button key={k} className="tab" role="tab" aria-selected={k === active}
+              onClick={() => nav(`/event/${event.key}/tab/${k}`)}>
+              {label}
+            </button>
+          ))}
+        </nav>
+      </TopBar>
+      <main className="page">
+        {active === 'map' && <MapTab ctx={ctx} hasMap={hasMap} onRetry={refresh} syncing={syncing} />}
+        {active === 'today' && <PrioritiesTab ctx={ctx} />}
+        {active === 'teams' && <TeamsTab ctx={ctx} />}
+        {active === 'tickets' && <TicketsTab ctx={ctx} onExport={exportReport} exporting={exporting} />}
+        {active === 'ref' && <LedReference />}
+        {active !== 'ref' && (
+          <p className="hint" style={{ marginTop: 24 }}>
+            Data from <a href="https://www.thebluealliance.com" target="_blank" rel="noreferrer">The Blue Alliance</a>
+            {event.nexus?.enabled && (
+              <> and <a href="https://frc.nexus" target="_blank" rel="noreferrer">FRC Nexus</a></>
+            )}
+            . Last refreshed {new Date(event.fetchedAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}.
+          </p>
+        )}
+        {active === 'tickets' && (
+          <button className="btn danger" style={{ marginTop: 8 }} onClick={async () => {
+            if (!confirm(`Remove ${event.shortName} from your list? Tickets stay saved for team history.`)) return;
+            await db.del('events', event.key);
+            nav('/');
+          }}>
+            Remove event from my list
+          </button>
+        )}
+      </main>
+    </>
+  );
+}
+
+// ---------------- Pit map ----------------
+
+function MapTab({ ctx, hasMap, onRetry, syncing }) {
+  const { event, colorFor, dayInfo } = ctx;
+  const [find, setFind] = useState('');
+  const [findOpen, setFindOpen] = useState(false);
+  const highlight = Number(find) || null;
+  const findSuggestions = find
+    ? event.teams.filter((t) => String(t.number).startsWith(find)).slice(0, 8)
+    : [];
+
+  if (!hasMap) {
+    const reason = !event.nexus?.enabled
+      ? 'Add your Nexus API key in Settings to load pit maps.'
+      : event.nexus?.error
+        ? event.nexus.error
+        : 'This event has not published a pit map on FRC Nexus yet.';
+    return (
+      <div className="sheet">
+        <div className="na-art">
+          <svg width="220" height="130" viewBox="0 0 220 130" aria-hidden="true">
+            {[0, 1, 2, 3].map((c) =>
+              [0, 1].map((r) => (
+                <rect key={`${c}${r}`} x={14 + c * 50} y={14 + r * 54} width="42" height="42" rx="4"
+                  style={{ fill: 'none', stroke: 'var(--st-empty)', strokeWidth: 2, strokeDasharray: '5 4' }} />
+              )),
+            )}
+            <text x="110" y="72" textAnchor="middle" dominantBaseline="central"
+              style={{ fontFamily: 'var(--font-num)', fontWeight: 700, fontSize: 56, fill: 'var(--muted)' }}>
+              N/A
+            </text>
+          </svg>
+          <h2 style={{ margin: '8px 0 4px', fontSize: '1.1rem' }}>No pit map for this event</h2>
+          <p className="muted" style={{ margin: '0 0 14px', maxWidth: 360 }}>{reason}</p>
+          <div className="inline" style={{ justifyContent: 'center' }}>
+            <button className="btn" onClick={onRetry} disabled={syncing}>{syncing ? 'Checking…' : 'Check again'}</button>
+            {!event.nexus?.enabled && <a className="btn primary" href="#/settings">Open Settings</a>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="inline" style={{ marginBottom: 10 }}>
+        <div className="combo-wrap">
+          <input className="input" inputMode="numeric" placeholder="Find a team on the map"
+            value={find}
+            onChange={(e) => { setFind(e.target.value.replace(/\D/g, '')); setFindOpen(true); }}
+            onFocus={() => setFindOpen(true)}
+            onBlur={() => setTimeout(() => setFindOpen(false), 120)}
+            aria-label="Find team" />
+          {findOpen && findSuggestions.length > 0 && (
+            <ul className="combo-list" role="listbox">
+              {findSuggestions.map((t) => (
+                <li key={t.number}>
+                  <button className="combo-option" onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => { setFind(String(t.number)); setFindOpen(false); }}>
+                    <TeamBox number={t.number} color={colorFor(t.number)} />
+                    <span className="row-title">{t.nickname}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        {highlight && event.nexus?.pits?.[highlight] && (
+          <span className="muted small">Pit {event.nexus.pits[highlight]}</span>
+        )}
+      </div>
+      <PitMap map={event.nexus.map} colorFor={colorFor} highlight={highlight}
+        teamAddresses={event.nexus?.pits} onSelect={(team) => nav(`/event/${event.key}/team/${team}`)} />
+      <Legend day={dayInfo.day} />
+    </>
+  );
+}
+
+// ---------------- Daily priorities ----------------
+
+function DaySwitch({ event, dayInfo }) {
+  async function set(v) {
+    await db.put('events', { ...event, dayOverride: v ? Number(v) : null });
+  }
+  return (
+    <label className="inline small muted">
+      Day
+      <select className="input" style={{ width: 'auto', minHeight: 36, padding: '4px 8px' }}
+        value={event.dayOverride ?? ''} onChange={(e) => set(e.target.value)}>
+        <option value="">Auto ({dayInfo.overridden ? 'from dates' : dayInfo.day})</option>
+        {Array.from({ length: dayInfo.len }, (_, i) => (
+          <option key={i} value={i + 1}>Day {i + 1}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function PrioritiesTab({ ctx }) {
+  const { event, dayInfo } = ctx;
+  const [sortBy, setSortBy] = useState('priority');
+  const [sortDir, setSortDir] = useState(dayInfo.day === 1 ? 'asc' : 'desc');
+  // Bumped only by an explicit re-sort (button or pull-down), never by editing a team's
+  // readiness/tickets, so the list doesn't jump around while you're checking things off.
+  const [resortToken, setResortToken] = useState(0);
+  const resort = () => {
+    setResortToken((n) => n + 1);
+    toast('Priority list re-sorted');
+  };
+  return (
+    <>
+      <div className="section-head">
+        <h2>Priority list</h2>
+        <DaySwitch event={event} dayInfo={dayInfo} />
+      </div>
+      <SortBar sortBy={sortBy} setSortBy={setSortBy} sortDir={sortDir} setSortDir={setSortDir} onResort={resort} />
+      <PullToResort onResort={resort}>
+        {dayInfo.day === 1
+          ? <ReadinessPriorities ctx={ctx} sortBy={sortBy} sortDir={sortDir} resortToken={resortToken} />
+          : <MatchPriorities ctx={ctx} sortBy={sortBy} sortDir={sortDir} resortToken={resortToken} />}
+      </PullToResort>
+    </>
+  );
+}
+
+function SortBar({ sortBy, setSortBy, sortDir, setSortDir, onResort }) {
+  return (
+    <div className="inline" style={{ marginBottom: 12 }}>
+      <label className="inline small muted" style={{ gap: 6 }}>
+        Sort by
+        <select className="input" style={{ width: 'auto', minHeight: 36, padding: '4px 8px' }}
+          value={sortBy} onChange={(e) => setSortBy(e.target.value)} aria-label="Sort priority list by">
+          <option value="priority">Priority</option>
+          <option value="unresolved">Unresolved count</option>
+          <option value="team">Team number</option>
+        </select>
+      </label>
+      <button className="btn" style={{ minHeight: 36 }}
+        onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}>
+        {sortDir === 'asc' ? '↑ Ascending' : '↓ Descending'}
+      </button>
+      <button className="btn" style={{ minHeight: 36 }} onClick={onResort} aria-label="Re-sort the priority list now">
+        <Icon name="refresh" size={16} /> Re-sort
+      </button>
+    </div>
+  );
+}
+
+/** Wraps the priority list so pulling down from the top re-sorts it, mirroring the button
+ *  above — the list itself never reorders on its own while you're working through it. */
+function PullToResort({ onResort, children }) {
+  const [pull, setPull] = useState(0);
+  const [ready, setReady] = useState(false);
+  const startY = useRef(null);
+  const THRESHOLD = 64;
+
+  function onTouchStart(e) {
+    startY.current = window.scrollY <= 0 ? e.touches[0].clientY : null;
+  }
+  function onTouchMove(e) {
+    if (startY.current == null) return;
+    const dy = e.touches[0].clientY - startY.current;
+    if (dy > 0 && window.scrollY <= 0) {
+      setPull(Math.min(dy, 110));
+      setReady(dy > THRESHOLD);
+    } else {
+      setPull(0);
+      setReady(false);
+    }
+  }
+  function onTouchEnd() {
+    if (ready) onResort();
+    setPull(0);
+    setReady(false);
+    startY.current = null;
+  }
+
+  return (
+    <div onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
+      {pull > 0 && (
+        <div className="pull-indicator" style={{ height: pull }}>
+          {ready ? 'Release to re-sort' : 'Pull down to re-sort'}
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}
+
+function ReadinessPriorities({ ctx, sortBy, sortDir, resortToken }) {
+  const { event, readiness, openByTeam, colorFor } = ctx;
+  const nexusTimes = useMemo(() => nexusTimesByMatchKey(event), [event]);
+
+  // Snapshot of which teams are pending and in what order. Only recomputed when the sort
+  // option changes or the user asks for a re-sort — not on every readiness edit — so rows
+  // don't jump or vanish out from under a finger mid-tap.
+  const pendingNumbers = useMemo(() => {
+    const eligible = event.teams.filter((t) => !readiness[t.number]?.ignored);
+    const list = eligible
+      .map((t) => ({ t, c: readinessCount(readiness[t.number]), open: openByTeam[t.number]?.length ?? 0 }))
+      .filter((x) => x.c < 3);
+    if (sortBy === 'team') {
+      list.sort((a, b) => a.t.number - b.t.number);
+      if (sortDir === 'desc') list.reverse();
+    } else if (sortBy === 'unresolved') {
+      list.sort((a, b) => b.open - a.open || a.t.number - b.t.number);
+      if (sortDir === 'asc') list.reverse();
+    } else {
+      list.sort((a, b) => a.c - b.c || a.t.number - b.t.number);
+      if (sortDir === 'desc') list.reverse();
+    }
+    return list.map((x) => x.t.number);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event.key, sortBy, sortDir, resortToken]);
+
+  const eligibleTeams = event.teams.filter((t) => !readiness[t.number]?.ignored);
+  const ready = eligibleTeams.length - eligibleTeams.filter((t) => readinessCount(readiness[t.number]) < 3).length;
+  const pending = pendingNumbers.map((n) => event.teams.find((t) => t.number === n)).filter(Boolean);
+
+  return (
+    <>
+      <div className="section">
+        <div className="inline small" style={{ justifyContent: 'space-between', marginBottom: 6 }}>
+          <span><strong>{ready}</strong> of {eligibleTeams.length} teams ready</span>
+          <span className="muted">Tap an item to mark it done</span>
+        </div>
+        <div className="progress"><div style={{ width: `${(ready / Math.max(1, eligibleTeams.length)) * 100}%` }} /></div>
+      </div>
+      {pending.length === 0 ? (
+        <div className="notice">Every team has flashed its radio, passed inspection, and connected to the field.</div>
+      ) : (
+        <ul className="row-list sheet">
+          {pending.map((t) => {
+            const r = readiness[t.number];
+            const next = nextMatch(event, t.number);
+            const time = next ? matchTimeMs(next, nexusTimes) : null;
+            const openTeamPage = () => nav(`/event/${event.key}/team/${t.number}`);
+            return (
+              <li key={t.number} className="row" style={{ cursor: 'pointer', flexWrap: 'wrap' }}
+                role="button" tabIndex={0} aria-label={`Open team ${t.number}`}
+                onClick={openTeamPage} onKeyDown={(e) => e.key === 'Enter' && openTeamPage()}>
+                <TeamBox number={t.number} color={colorFor(t.number)} />
+                <div className="row-main">
+                  <div className="row-title">{t.nickname}</div>
+                  <div className="row-sub">
+                    {next
+                      ? `Next: ${matchLabel(next)}${time ? ` · ~${formatClock(time.ms)}` : ''}`
+                      : 'No more scheduled matches'}
+                  </div>
+                  <div className="inline" style={{ gap: 6, marginTop: 6 }}>
+                    {READINESS_ITEMS.map(([k, , short]) => (
+                      <button key={k} className={`mark${r?.[k] ? ' done' : ''}`}
+                        aria-pressed={!!r?.[k]}
+                        onClick={(e) => { e.stopPropagation(); toggleReadiness(event.key, t.number, k, r); }}>
+                        {r?.[k] ? '✓ ' : ''}
+                        {short}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </>
+  );
+}
+
+function MatchPriorities({ ctx, sortBy, sortDir, resortToken }) {
+  const { event, openByTeam, readiness, colorFor } = ctx;
+  const nexusTimes = useMemo(() => nexusTimesByMatchKey(event), [event]);
+  const order = Object.fromEntries(event.matches.map((m, i) => [m.key, i]));
+  const byTeam = sortBy === 'team';
+
+  // Snapshot of team order AND which section (open tickets vs. up next) each team is in.
+  // Recomputed only on an explicit re-sort, so resolving a ticket or a match finishing
+  // doesn't move rows around while you're working the list.
+  const rowSnapshot = useMemo(() => {
+    const base = event.teams
+      .filter((t) => !readiness[t.number]?.ignored)
+      .map((t) => {
+        const open = sortTickets(openByTeam[t.number] ?? []);
+        const next = nextMatch(event, t.number);
+        return {
+          number: t.number,
+          hasOpen: open.length > 0,
+          openCount: open.length,
+          topWeight: open.length ? PRIORITY_WEIGHT[open[0].priority] : 0,
+          nextIndex: next ? order[next.key] : Infinity,
+        };
+      });
+    if (byTeam) {
+      base.sort((a, b) => a.number - b.number);
+      if (sortDir === 'desc') base.reverse();
+    } else if (sortBy === 'unresolved') {
+      base.sort((a, b) => b.openCount - a.openCount || a.number - b.number);
+      if (sortDir === 'asc') base.reverse();
+    } else {
+      base.sort(
+        (a, b) =>
+          (b.hasOpen ? 1 : 0) - (a.hasOpen ? 1 : 0) ||
+          b.topWeight - a.topWeight ||
+          a.nextIndex - b.nextIndex ||
+          a.number - b.number,
+      );
+      if (sortDir === 'asc') base.reverse();
+    }
+    return base.map((x) => ({ number: x.number, hasOpen: x.hasOpen }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event.key, sortBy, sortDir, resortToken]);
+
+  const rows = rowSnapshot
+    .map(({ number, hasOpen }) => {
+      const t = event.teams.find((tt) => tt.number === number);
+      if (!t) return null;
+      const open = sortTickets(openByTeam[number] ?? []);
+      const next = nextMatch(event, number);
+      return { t, open, next, hasOpen };
+    })
+    .filter(Boolean);
+
+  const withOpen = byTeam ? [] : rows.filter((r) => r.hasOpen);
+  const rest = byTeam ? rows : rows.filter((r) => !r.hasOpen);
+  const nowQueuing = event.nexus?.live?.nowQueuing;
+
+  const Row = ({ r }) => {
+    const time = r.next ? matchTimeMs(r.next, nexusTimes) : null;
+    return (
+      <li className="row" style={{ padding: 0 }}>
+        <button className="row" style={{ flex: 1, minWidth: 0, border: 0 }}
+          onClick={() => nav(`/event/${event.key}/team/${r.t.number}`)}>
+          <TeamBox number={r.t.number} color={colorFor(r.t.number)} />
+          <div className="row-main">
+            <div className="row-title">{r.open[0]?.title ?? r.t.nickname}</div>
+            <div className="row-sub">
+              {r.open.length > 1 ? `+${r.open.length - 1} more open · ` : ''}
+              {r.next
+                ? `Next: ${matchLabel(r.next)}${time ? ` · ${time.kind === 'queue' ? 'queue' : 'start'} ~${formatClock(time.ms)}` : ''}${time?.status ? ` · ${time.status}` : ''}`
+                : 'No more scheduled matches'}
+            </div>
+          </div>
+          {r.open.length > 0 && <span className="count-badge">{r.open.length}</span>}
+        </button>
+        <button className="icon-btn" aria-label={`Flag team ${r.t.number} for follow-up`}
+          onClick={() => nav(`/event/${event.key}/ticket/followup/${r.t.number}`)}>
+          <Icon name="flag" size={18} />
+        </button>
+      </li>
+    );
+  };
+
+  return (
+    <>
+      {nowQueuing && <div className="notice section">Now queuing: <strong>{nowQueuing}</strong></div>}
+      {event.matches.length === 0 && (
+        <div className="notice section">No match schedule on TBA yet. Refresh once the schedule is posted.</div>
+      )}
+      {withOpen.length > 0 && (
+        <section className="section">
+          <div className="section-head">
+            <h2>Open tickets</h2>
+            <span className="aside">{withOpen.length} team{withOpen.length === 1 ? '' : 's'}</span>
+          </div>
+          <ul className="row-list sheet">{withOpen.map((r) => <Row key={r.t.number} r={r} />)}</ul>
+        </section>
+      )}
+      <section className="section">
+        <div className="section-head">
+          <h2>{byTeam ? 'Teams' : 'Up next on the field'}</h2>
+        </div>
+        <ul className="row-list sheet">{rest.map((r) => <Row key={r.t.number} r={r} />)}</ul>
+      </section>
+      <Legend day={2} />
+    </>
+  );
+}
+
+// ---------------- Teams ----------------
+
+function TeamsTab({ ctx }) {
+  const { event, readiness, openByTeam, colorFor, dayInfo } = ctx;
+  const [q, setQ] = useState('');
+  const pits = event.nexus?.pits ?? {};
+  const list = event.teams.filter((t) => {
+    if (!q) return true;
+    const s = q.toLowerCase();
+    return String(t.number).startsWith(s) || t.nickname?.toLowerCase().includes(s);
+  });
+
+  if (!event.teams.length) {
+    return <div className="notice">TBA hasn't published the team list for this event yet. Refresh closer to the event.</div>;
+  }
+
+  return (
+    <>
+      <input className="input" style={{ marginBottom: 12 }} placeholder="Filter by number or name"
+        value={q} onChange={(e) => setQ(e.target.value)} aria-label="Filter teams" />
+      <ul className="row-list sheet">
+        {list.map((t) => (
+          <li key={t.number} className="row" style={{ padding: 0 }}>
+            <button className="row" style={{ flex: 1, minWidth: 0, border: 0 }}
+              onClick={() => nav(`/event/${event.key}/team/${t.number}`)}>
+              <TeamBox number={t.number} color={colorFor(t.number)} />
+              <div className="row-main">
+                <div className="row-title">{t.nickname}</div>
+                <div className="row-sub">
+                  {pits[t.number] ? `Pit ${pits[t.number]} · ` : ''}
+                  {[t.city, t.stateProv].filter(Boolean).join(', ')}
+                </div>
+                <div style={{ marginTop: 5 }}>
+                  <ReadinessMarks readiness={readiness[t.number]} />
+                </div>
+              </div>
+              {openByTeam[t.number]?.length > 0 && (
+                <span className="count-badge" title="Unresolved tickets">{openByTeam[t.number].length}</span>
+              )}
+            </button>
+            <button className="icon-btn" aria-label={`Flag team ${t.number} for follow-up`}
+              onClick={() => nav(`/event/${event.key}/ticket/followup/${t.number}`)}>
+              <Icon name="flag" size={18} />
+            </button>
+          </li>
+        ))}
+      </ul>
+      <Legend day={dayInfo.day} />
+    </>
+  );
+}
+
+// ---------------- Tickets ----------------
+
+const FILTERS = [
+  ['all', 'All'],
+  ['unresolved', 'Unresolved'],
+  ['resolved', 'Resolved'],
+  ['declined', 'Declined'],
+];
+
+function TicketsTab({ ctx, onExport, exporting }) {
+  const { event, tickets } = ctx;
+  const [filter, setFilter] = useState('all');
+  const [q, setQ] = useState('');
+  const shown = sortTickets(tickets).filter((t) => {
+    if (filter !== 'all' && t.status !== filter) return false;
+    if (!q) return true;
+    const s = q.toLowerCase();
+    return (
+      String(t.team).startsWith(s) ||
+      t.title.toLowerCase().includes(s) ||
+      t.tags?.some((tag) => tag.toLowerCase().includes(s))
+    );
+  });
+
+  return (
+    <>
+      <button className="btn primary block" style={{ marginBottom: 14 }}
+        onClick={() => nav(`/event/${event.key}/ticket/new`)}>
+        <Icon name="plus" size={20} /> New ticket
+      </button>
+      <div className="inline" style={{ marginBottom: 10 }}>
+        {FILTERS.map(([k, l]) => (
+          <button key={k} className="chip" aria-pressed={filter === k} onClick={() => setFilter(k)}>
+            {l} ({k === 'all' ? tickets.length : tickets.filter((t) => t.status === k).length})
+          </button>
+        ))}
+      </div>
+      <input className="input" style={{ marginBottom: 12 }} placeholder="Search team, title, or tag"
+        value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search tickets" />
+      {shown.length ? (
+        <ul className="row-list sheet">
+          {shown.map((t) => <TicketRow key={t.id} ticket={t} />)}
+        </ul>
+      ) : (
+        <p className="muted">
+          {tickets.length ? 'No tickets match this filter.' : 'No tickets yet. Log the first one when a team asks for help.'}
+        </p>
+      )}
+      <button className="btn block" style={{ marginTop: 18 }} onClick={onExport} disabled={exporting}>
+        <Icon name="report" size={20} /> {exporting ? 'Building report…' : 'Export event report (.docx)'}
+      </button>
+    </>
+  );
+}

@@ -1,0 +1,177 @@
+// Reference tables for CTRE and REV hardware status LEDs, for quickly diagnosing a blinking
+// light in the pit without a phone signal to look it up online. Compiled from the official
+// WPILib "Status Light Quick Reference", CTRE's Phoenix/Talon/Pigeon/CANcoder documentation,
+// and REV's SPARK MAX/Flex and PDH/Pneumatic Hub documentation. Firmware can add states over
+// time, so treat this as a starting point, not the final word.
+//
+// Each row's `swatch` drives the little animated color indicator next to it in the UI:
+//   colors: 1 color for solid/blink, 2 for alt (a single indicator cycling between them)
+//   mode:   'off' | 'solid' | 'blink' | 'alt'
+//   leds:   how many dots to draw (default 1)
+//   phase:  for a 2-LED blink, 'sync' (together) or 'alt' (out of phase) — default 'sync'
+//   speed:  'slow' | 'normal' | 'fast' — default 'normal'
+function sw(colors, mode, opts = {}) {
+  return { colors, mode, leds: opts.leds ?? 1, phase: opts.phase ?? 'sync', speed: opts.speed ?? 'normal' };
+}
+
+export const LED_REFERENCE = [
+  {
+    brand: 'CTRE',
+    device: 'Talon FX / Talon FXS / Kraken X60',
+    note: 'Two status LEDs on the controller face.',
+    rows: [
+      { pattern: 'Off', meaning: 'No power', swatch: sw([], 'off') },
+      { pattern: 'Blinking, alternating red', meaning: 'No valid CAN or PWM signal', swatch: sw(['red'], 'blink', { leds: 2, phase: 'alt' }) },
+      { pattern: 'Blinking, alternating orange', meaning: 'CAN bus detected, but no Phoenix (robot code not running yet)', swatch: sw(['orange'], 'blink', { leds: 2, phase: 'alt' }) },
+      { pattern: 'Blinking, simultaneous orange', meaning: 'Valid CAN signal, device disabled', swatch: sw(['orange'], 'blink', { leds: 2, phase: 'sync' }) },
+      { pattern: 'Both solid orange', meaning: 'Enabled, commanded to neutral (zero output)', swatch: sw(['orange'], 'solid', { leds: 2 }) },
+      { pattern: 'Blinking, simultaneous green', meaning: 'Driving forward', swatch: sw(['green'], 'blink', { leds: 2, phase: 'sync' }) },
+      { pattern: 'Blinking, simultaneous red', meaning: 'Driving in reverse', swatch: sw(['red'], 'blink', { leds: 2, phase: 'sync' }) },
+      { pattern: 'Offset alternating red/off', meaning: 'A configured limit has been reached (current, position, etc.)', swatch: sw(['red'], 'blink', { leds: 2, phase: 'alt' }) },
+      { pattern: 'Offset orange/off', meaning: 'Thermal cutoff — device is overheating', swatch: sw(['orange'], 'blink', { leds: 2, phase: 'alt' }) },
+      { pattern: 'Alternating red/green', meaning: 'A Phoenix Pro–only feature is being used without a Pro license', swatch: sw(['red', 'green'], 'alt') },
+      { pattern: 'Alternating red/orange', meaning: 'Damaged hardware', swatch: sw(['red', 'orange'], 'alt') },
+      { pattern: 'One LED alternating green/orange', meaning: 'Device is in bootloader mode (mid firmware update, or a failed one)', swatch: sw(['green', 'orange'], 'alt') },
+      { pattern: 'Alternating orange/green (Talon FXS only)', meaning: 'No motor selected in the motor arrangement config', swatch: sw(['orange', 'green'], 'alt') },
+    ],
+  },
+  {
+    brand: 'CTRE',
+    device: 'Talon SRX / Victor SPX',
+    rows: [
+      { pattern: 'Off', meaning: 'No power', swatch: sw([], 'off') },
+      { pattern: 'Both blinking green', meaning: 'Forward throttle applied — blink rate follows duty cycle', swatch: sw(['green'], 'blink', { leds: 2 }) },
+      { pattern: 'Both blinking red', meaning: 'Reverse throttle applied — blink rate follows duty cycle', swatch: sw(['red'], 'blink', { leds: 2 }) },
+      { pattern: 'Alternating off/orange', meaning: 'CAN bus detected, robot disabled', swatch: sw(['orange'], 'blink', { leds: 2 }) },
+      { pattern: 'Alternating off/slow red', meaning: 'CAN bus (or PWM) not detected', swatch: sw(['red'], 'blink', { leds: 2, speed: 'slow' }) },
+      { pattern: 'Alternating off/fast red', meaning: 'Fault detected', swatch: sw(['red'], 'blink', { leds: 2, speed: 'fast' }) },
+      { pattern: 'Alternating red/orange', meaning: 'Damaged hardware', swatch: sw(['red', 'orange'], 'alt') },
+      { pattern: 'Strobe toward M-: off/red', meaning: 'Forward limit switch or forward soft limit hit', swatch: sw(['red'], 'blink', { speed: 'fast' }) },
+      { pattern: 'Strobe toward M+: off/red', meaning: 'Reverse limit switch or reverse soft limit hit', swatch: sw(['red'], 'blink', { speed: 'fast' }) },
+      { pattern: 'LED1 only, green/orange', meaning: 'Device is in bootloader mode', swatch: sw(['green', 'orange'], 'alt') },
+      { pattern: 'Flashing red/green', meaning: 'Calibration mode', swatch: sw(['red', 'green'], 'alt', { speed: 'fast' }) },
+      { pattern: 'Blinking green (calibration)', meaning: 'Calibration succeeded', swatch: sw(['green'], 'blink') },
+      { pattern: 'Blinking red (calibration)', meaning: 'Calibration failed', swatch: sw(['red'], 'blink') },
+    ],
+  },
+  {
+    brand: 'CTRE',
+    device: 'CANcoder',
+    rows: [
+      { pattern: 'Off', meaning: 'Not powered', swatch: sw([], 'off') },
+      { pattern: 'Yellow/green, bright', meaning: 'Device is in bootloader mode', swatch: sw(['yellow', 'green'], 'alt') },
+      { pattern: 'Slow red blink, bright', meaning: 'CAN bus connection lost', swatch: sw(['red'], 'blink', { speed: 'slow' }) },
+      { pattern: 'Rapid blink, dim', meaning: 'CAN bus never detected since boot', swatch: sw(['gray'], 'blink', { speed: 'fast' }) },
+      { pattern: 'Rapid red blink, bright', meaning: 'CAN bus present, but magnet is out of range', swatch: sw(['red'], 'blink', { speed: 'fast' }) },
+      { pattern: 'Rapid yellow blink, bright', meaning: 'CAN bus present, magnet in range with reduced accuracy', swatch: sw(['yellow'], 'blink', { speed: 'fast' }) },
+      { pattern: 'Rapid green blink, bright', meaning: 'CAN bus present, magnet well in range (45–75 mT)', swatch: sw(['green'], 'blink', { speed: 'fast' }) },
+      { pattern: 'Alternating red/orange', meaning: 'Damaged hardware', swatch: sw(['red', 'orange'], 'alt') },
+    ],
+  },
+  {
+    brand: 'CTRE',
+    device: 'Pigeon 2.0',
+    rows: [
+      { pattern: 'Off', meaning: 'Not powered — check the wiring', swatch: sw([], 'off') },
+      { pattern: 'One LED blinking yellow/green', meaning: 'In bootloader mode, likely from a failed field upgrade', swatch: sw(['yellow', 'green'], 'alt') },
+      { pattern: 'Alternating red/yellow', meaning: 'Hardware is damaged', swatch: sw(['red', 'yellow'], 'alt') },
+      { pattern: 'Simultaneous red blink', meaning: 'CAN bus issue — no robot controller on the bus, or Pigeon not initialized', swatch: sw(['red'], 'blink', { leds: 2, phase: 'sync' }) },
+      { pattern: 'Single yellow blink', meaning: 'CAN bus detected, robot disabled', swatch: sw(['yellow'], 'blink') },
+      { pattern: 'Single green blink', meaning: 'CAN bus detected, robot enabled', swatch: sw(['green'], 'blink') },
+    ],
+  },
+  {
+    brand: 'CTRE',
+    device: 'Power Distribution Panel (PDP)',
+    rows: [
+      { pattern: 'Green, strobing', meaning: 'No fault — robot enabled', swatch: sw(['green'], 'blink', { speed: 'fast' }) },
+      { pattern: 'Green, slow', meaning: 'No fault — robot disabled', swatch: sw(['green'], 'blink', { speed: 'slow' }) },
+      { pattern: 'Orange, slow', meaning: 'Sticky fault', swatch: sw(['orange'], 'blink', { speed: 'slow' }) },
+      { pattern: 'Red, slow', meaning: 'No CAN communication', swatch: sw(['red'], 'blink', { speed: 'slow' }) },
+      { pattern: 'Red/orange', meaning: 'Damaged hardware', swatch: sw(['red', 'orange'], 'alt') },
+      { pattern: 'Green/orange', meaning: 'In bootloader', swatch: sw(['green', 'orange'], 'alt') },
+      { pattern: 'No LED', meaning: 'No power, or incorrect polarity', swatch: sw([], 'off') },
+    ],
+  },
+  {
+    brand: 'CTRE',
+    device: 'Pneumatics Control Module (PCM)',
+    rows: [
+      { pattern: 'Green, strobing', meaning: 'No fault — robot enabled', swatch: sw(['green'], 'blink', { speed: 'fast' }) },
+      { pattern: 'Green, slow', meaning: 'Sticky fault', swatch: sw(['green'], 'blink', { speed: 'slow' }) },
+      { pattern: 'Orange, slow', meaning: 'Sticky fault', swatch: sw(['orange'], 'blink', { speed: 'slow' }) },
+      { pattern: 'Red, slow', meaning: 'No CAN communication, or a solenoid fault', swatch: sw(['red'], 'blink', { speed: 'slow' }) },
+      { pattern: 'Red, long', meaning: 'Compressor fault', swatch: sw(['red'], 'blink', { speed: 'slow' }) },
+      { pattern: 'Red/orange', meaning: 'Damaged hardware', swatch: sw(['red', 'orange'], 'alt') },
+      { pattern: 'Green/orange', meaning: 'In bootloader', swatch: sw(['green', 'orange'], 'alt') },
+      { pattern: 'No LED', meaning: 'No power, or incorrect polarity', swatch: sw([], 'off') },
+      { pattern: 'Comp LED green', meaning: 'Compressor output active', swatch: sw(['green'], 'solid') },
+      { pattern: 'Solenoid channel LED red', meaning: 'That solenoid channel is enabled', swatch: sw(['red'], 'solid') },
+    ],
+  },
+  {
+    brand: 'REV',
+    device: 'SPARK MAX / SPARK Flex',
+    note: 'Idle-state colors depend on motor type and idle mode — none of these are faults.',
+    rows: [
+      { pattern: 'Blue blink', meaning: 'Brushed, brake mode, no signal yet', swatch: sw(['blue'], 'blink') },
+      { pattern: 'Blue solid', meaning: 'Brushed, brake mode, valid signal', swatch: sw(['blue'], 'solid') },
+      { pattern: 'Yellow blink', meaning: 'Brushed, coast mode, no signal yet', swatch: sw(['yellow'], 'blink') },
+      { pattern: 'Yellow solid', meaning: 'Brushed, coast mode, valid signal', swatch: sw(['yellow'], 'solid') },
+      { pattern: 'Cyan blink', meaning: 'Brushless, brake mode, no signal yet', swatch: sw(['cyan'], 'blink') },
+      { pattern: 'Cyan solid', meaning: 'Brushless, brake mode, valid signal', swatch: sw(['cyan'], 'solid') },
+      { pattern: 'Magenta blink', meaning: 'Brushless, coast mode, no signal yet', swatch: sw(['magenta'], 'blink') },
+      { pattern: 'Magenta solid', meaning: 'Brushless, coast mode, valid signal', swatch: sw(['magenta'], 'solid') },
+      { pattern: 'Green blink', meaning: 'Partial forward output', swatch: sw(['green'], 'blink') },
+      { pattern: 'Green solid', meaning: 'Full forward output', swatch: sw(['green'], 'solid') },
+      { pattern: 'Red blink', meaning: 'Partial reverse output', swatch: sw(['red'], 'blink') },
+      { pattern: 'Red solid', meaning: 'Full reverse output', swatch: sw(['red'], 'solid') },
+      { pattern: 'Green/white blink', meaning: 'Forward limit switch triggered', swatch: sw(['green', 'white'], 'alt') },
+      { pattern: 'Red/white blink', meaning: 'Reverse limit switch triggered', swatch: sw(['red', 'white'], 'alt') },
+      { pattern: 'White/magenta fast blink', meaning: 'Device identify (blinked from the REV Hardware Client)', swatch: sw(['white', 'magenta'], 'alt', { speed: 'fast' }) },
+      { pattern: 'White/yellow blink', meaning: 'CAN bootloader — firmware updating', swatch: sw(['white', 'yellow'], 'alt') },
+      { pattern: 'White/blue blink', meaning: 'CAN bootloader — retrying', swatch: sw(['white', 'blue'], 'alt') },
+      { pattern: 'Orange/blue slow blink', meaning: 'Fault: 12V missing', swatch: sw(['orange', 'blue'], 'alt', { speed: 'slow' }) },
+      { pattern: 'Orange/magenta slow blink', meaning: 'Fault: sensor fault', swatch: sw(['orange', 'magenta'], 'alt', { speed: 'slow' }) },
+      { pattern: 'Orange/cyan slow blink', meaning: 'Fault: gate driver fault', swatch: sw(['orange', 'cyan'], 'alt', { speed: 'slow' }) },
+      { pattern: 'Orange/yellow slow blink', meaning: 'Fault: CAN fault', swatch: sw(['orange', 'yellow'], 'alt', { speed: 'slow' }) },
+      { pattern: 'Orange/green slow blink (SPARK Flex only)', meaning: 'Fault: temperature cutoff', swatch: sw(['orange', 'green'], 'alt', { speed: 'slow' }) },
+      { pattern: "LED off (won't light at all)", meaning: 'Corrupt firmware, or in USB DFU/recovery mode', swatch: sw([], 'off') },
+    ],
+  },
+  {
+    brand: 'REV',
+    device: 'Power Distribution Hub (PDH)',
+    rows: [
+      { pattern: 'Blue solid', meaning: 'Device powered on, no communication established yet', swatch: sw(['blue'], 'solid') },
+      { pattern: 'Green solid', meaning: 'Main communication with the roboRIO established', swatch: sw(['green'], 'solid') },
+      { pattern: 'Magenta blinking', meaning: 'Keep-alive timeout', swatch: sw(['magenta'], 'blink') },
+      { pattern: 'Cyan solid', meaning: 'Secondary heartbeat — connected to the REV Hardware Client', swatch: sw(['cyan'], 'solid') },
+      { pattern: 'Orange/blue blinking', meaning: 'Low battery', swatch: sw(['orange', 'blue'], 'alt') },
+      { pattern: 'Orange/yellow blinking', meaning: 'CAN fault', swatch: sw(['orange', 'yellow'], 'alt') },
+      { pattern: 'Orange/cyan blinking', meaning: 'Hardware fault', swatch: sw(['orange', 'cyan'], 'alt') },
+      { pattern: 'Orange/red blinking', meaning: 'Fail-safe triggered', swatch: sw(['orange', 'red'], 'alt') },
+      { pattern: 'Orange/magenta blinking', meaning: 'A channel is over current', swatch: sw(['orange', 'magenta'], 'alt') },
+      { pattern: 'Channel LED off', meaning: 'That channel has voltage and is healthy', swatch: sw([], 'off') },
+      { pattern: 'Channel LED red, solid', meaning: 'That channel has no voltage and has an active fault', swatch: sw(['red'], 'solid') },
+      { pattern: 'Channel LED red, blinking', meaning: 'Sticky fault on that channel from earlier', swatch: sw(['red'], 'blink') },
+    ],
+  },
+  {
+    brand: 'REV',
+    device: 'Pneumatic Hub',
+    rows: [
+      { pattern: 'Blue solid', meaning: 'Device powered on, no communication established yet', swatch: sw(['blue'], 'solid') },
+      { pattern: 'Green solid', meaning: 'Main communication established', swatch: sw(['green'], 'solid') },
+      { pattern: 'Magenta blinking', meaning: 'Keep-alive timeout', swatch: sw(['magenta'], 'blink') },
+      { pattern: 'Cyan solid', meaning: 'Secondary heartbeat — connected to the REV Hardware Client', swatch: sw(['cyan'], 'solid') },
+      { pattern: 'Orange/blue blinking', meaning: 'Hardware fault', swatch: sw(['orange', 'blue'], 'alt') },
+      { pattern: 'Orange/yellow blinking', meaning: 'CAN fault', swatch: sw(['orange', 'yellow'], 'alt') },
+      { pattern: 'Orange/red blinking', meaning: 'Fail-safe triggered', swatch: sw(['orange', 'red'], 'alt') },
+      { pattern: 'Orange/magenta blinking', meaning: 'Device over current', swatch: sw(['orange', 'magenta'], 'alt') },
+      { pattern: 'Orange/green blinking', meaning: 'Compressor over current', swatch: sw(['orange', 'green'], 'alt') },
+      { pattern: 'Compressor LED green', meaning: 'Compressor is on', swatch: sw(['green'], 'solid') },
+      { pattern: 'Solenoid LED green', meaning: 'That solenoid is on', swatch: sw(['green'], 'solid') },
+    ],
+  },
+];

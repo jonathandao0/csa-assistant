@@ -6,12 +6,16 @@ import { lastPlayedMatch, matchLabel } from './logic.js';
 // behind import.meta.env.DEV (see pages/Settings.jsx).
 const TEAM_COUNT = 24;
 const ROWS = ['A', 'B', 'C', 'D'];
+// Deliberately far above any real FRC team number (they're only in the low 10,000s), so
+// demo teams can never be confused with — or pull TBA photos/data for — a real team.
+const FIRST_TEAM = 99101;
+export const DEMO_EVENT_KEYS = ['2026demo', '2026demo2'];
 
 function buildTeams() {
   return Array.from({ length: TEAM_COUNT }, (_, i) => ({
-    number: 1000 + i,
-    nickname: `Demo Team ${1000 + i}`,
-    name: `Demo Team ${1000 + i} Robotics`,
+    number: FIRST_TEAM + i,
+    nickname: `Demo Team ${FIRST_TEAM + i}`,
+    name: `Demo Team ${FIRST_TEAM + i} Robotics`,
     schoolName: 'Sample High School',
     city: 'Anytown',
     stateProv: 'CA',
@@ -46,7 +50,7 @@ function buildMatches(key, teams, dayOffsetSec) {
     });
   }
   // Mark an early chunk as already played so match history/last-match has data too.
-  const playedCount = Math.min(8, matches.length);
+  const playedCount = Math.min(16, matches.length);
   matches.slice(0, playedCount).forEach((m, i) => {
     m.played = true;
     m.actualTime = baseSec - (playedCount - i) * 480;
@@ -103,16 +107,32 @@ function buildReadiness(key, teams) {
 /** Builds one event's ticket set. `linked` optionally injects one ticket that links to a
  *  ticket at the other demo event, to show a continuing issue spanning events. `seq` is this
  *  event's position in each affected team's ticket history (1 = the older/District event). */
-function buildTickets(key, eventName, teams, matches, linked, seq) {
+function buildTickets(key, eventName, teams, matches, linked, seq, withRepeats) {
   const samples = [
     { id: `${key}-t0`, team: teams[2].number, title: 'Robot browns out mid-match', tags: ['Brownout / power', 'Battery'], priority: 'high', status: 'unresolved' },
-    { id: `${key}-t1`, team: teams[8].number, title: 'Intermittent CAN bus errors', tags: ['CAN bus'], priority: 'medium', status: 'resolved' },
-    { id: `${key}-t2`, team: teams[11].number, title: 'Driver station shows code error', tags: ['Code', 'Driver Station'], priority: 'low', status: 'declined' },
+    { id: `${key}-t1`, team: teams[8].number, title: 'Intermittent CAN bus errors', tags: ['CAN bus'], priority: 'normal', status: 'resolved' },
+    { id: `${key}-t2`, team: teams[11].number, title: 'Driver station shows code error', tags: ['Code', 'Driver Station'], priority: 'normal', status: 'declined' },
     { id: `${key}-t3`, team: teams[14].number, title: 'Systemcore will not image', tags: ['Systemcore', 'Firmware / imaging'], priority: 'high', status: 'unresolved' },
-    { id: `${key}-t4`, team: teams[17].number, title: 'Noticed smoke smell after match, unconfirmed', tags: ['Follow-up'], priority: 'low', status: 'unresolved' },
-    { id: `${key}-t5`, team: teams[20].number, title: 'Intake jams on angled game pieces', tags: ['Mechanical', 'Sensors'], priority: 'medium', status: 'unresolved' },
+    { id: `${key}-t4`, team: teams[17].number, title: 'Noticed smoke smell after match, unconfirmed', tags: ['Follow-up'], priority: 'normal', status: 'unresolved' },
+    { id: `${key}-t5`, team: teams[20].number, title: 'Intake jams on angled game pieces', tags: ['Mechanical', 'Sensors'], priority: 'normal', status: 'unresolved' },
   ];
   if (linked) samples.push(linked.ticket);
+  // One team with a run of tickets over several matches, so the team page's
+  // "Issues by match" chart has more than a single bar to show.
+  if (withRepeats) {
+    const team = teams[2].number;
+    const played = matches.filter((m) => m.played && (m.red.includes(team) || m.blue.includes(team)));
+    const early = [
+      { title: 'Robot disabled for a few seconds in auto', tags: ['Field connection', 'Radio'], priority: 'normal', status: 'resolved' },
+      { title: 'Brownout again, low battery voltage at match start', tags: ['Brownout / power', 'Battery'], priority: 'high', status: 'resolved' },
+    ];
+    const repeats = early.filter((_, i) => played[i + 1]);
+    // Earlier tickets take the lower numbers; the main sample ticket comes last.
+    repeats.forEach((t, i) => {
+      samples.push({ ...t, id: `${key}-r${i}`, team, lastMatch: matchLabel(played[i]), seqOffset: i, createdAt: Date.now() - (8 - i) * 3600_000 });
+    });
+    samples[0].seqOffset = repeats.length;
+  }
 
   // Each ticket's "last match" reflects that team's actual schedule, so the ticket form's
   // match dropdown has real, varied entries to show instead of one hardcoded value.
@@ -123,7 +143,7 @@ function buildTickets(key, eventName, teams, matches, linked, seq) {
 
   return samples.map((s) => ({
     id: s.id,
-    seq,
+    seq: seq + (s.seqOffset ?? 0),
     eventKey: key,
     eventName,
     team: s.team,
@@ -132,10 +152,10 @@ function buildTickets(key, eventName, teams, matches, linked, seq) {
     status: s.status,
     priority: s.priority,
     tags: s.tags,
-    lastMatch: lastMatchFor(s.team),
+    lastMatch: s.lastMatch ?? lastMatchFor(s.team),
     resolution: s.status === 'resolved' ? 'Reseated the connector and re-ran the match.' : '',
     links: s.links ?? [],
-    createdAt: Date.now() - Math.random() * 5 * 3600_000,
+    createdAt: s.createdAt ?? Date.now() - Math.random() * 5 * 3600_000,
     updatedAt: Date.now() - Math.random() * 2 * 3600_000,
     resolvedAt: s.status === 'resolved' ? Date.now() - 1800_000 : null,
   }));
@@ -174,14 +194,25 @@ async function buildEvent({ key, name, shortName, startDate, endDate, eventType,
 
   await db.put('events', event);
   await Promise.all(buildReadiness(key, teams).map((r) => db.put('readiness', r)));
-  const tickets = buildTickets(key, shortName, teams, matches, linked, ticketSeq);
+  const tickets = buildTickets(key, shortName, teams, matches, linked, ticketSeq, ticketSeq === 2);
   await Promise.all(tickets.map((t) => db.put('tickets', t)));
   return event;
+}
+
+/** Deletes the demo events plus every ticket and readiness record that belongs to them
+ *  (including ones left over from an older demo roster). */
+export async function removeDemoData() {
+  const keys = new Set(DEMO_EVENT_KEYS);
+  const [tickets, readiness] = await Promise.all([db.all('tickets'), db.all('readiness')]);
+  for (const t of tickets) if (keys.has(t.eventKey)) await db.del('tickets', t.id);
+  for (const r of readiness) if (keys.has(r.eventKey)) await db.del('readiness', r.id);
+  for (const k of keys) await db.del('events', k);
 }
 
 /** Wipes any existing demo events and reseeds two fake events sharing a roster, so the
  *  team-page History section (continuing issues + prior-event summaries) has data to show. */
 export async function seedDevEvent() {
+  await removeDemoData();
   const teams = buildTeams();
   const linkedTeam = teams[5].number;
 
@@ -206,7 +237,7 @@ export async function seedDevEvent() {
         team: linkedTeam,
         title: 'Radio drops after hard hits',
         tags: ['Radio'],
-        priority: 'critical',
+        priority: 'high',
         status: 'resolved',
         links: [firstLinkId],
       },
@@ -229,7 +260,7 @@ export async function seedDevEvent() {
         team: linkedTeam,
         title: 'Same radio issue as last event',
         tags: ['Radio'],
-        priority: 'critical',
+        priority: 'high',
         status: 'unresolved',
         links: [secondLinkId],
       },

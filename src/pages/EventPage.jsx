@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import LedReference from '../components/LedReference.jsx';
 import PitMap from '../components/PitMap.jsx';
-import { Icon, Legend, Loading, ReadinessMarks, TeamBox, TicketRow, TopBar } from '../components/ui.jsx';
+import { Icon, Legend, Loading, Modal, ReadinessMarks, TeamBox, TicketRow, TopBar } from '../components/ui.jsx';
 import { db, useLive } from '../lib/db.js';
 import {
   PHASE_LABELS,
@@ -19,6 +19,7 @@ import {
   teamColor,
   ticketYear,
 } from '../lib/logic.js';
+import { parseNexusMessage, stashDraft } from '../lib/nexusImport.js';
 import { nav } from '../lib/router.js';
 import { syncEvent } from '../lib/sync.js';
 import { downloadBlob, toast } from '../lib/util.js';
@@ -97,14 +98,14 @@ export default function EventPage({ eventKey, tab }) {
     }
   }
 
-  async function exportReport() {
-    setExporting(true);
+  async function exportReport(anonymize = false) {
+    setExporting(anonymize ? 'anon' : 'full');
     try {
       const { buildEventReport } = await import('../lib/report.js');
       const all = (await db.all('tickets')).filter((t) => ticketYear(t) === event.year);
-      const blob = await buildEventReport(event, ctx.tickets, all);
-      downloadBlob(blob, `CSA report ${event.key}.docx`);
-      toast('Report downloaded');
+      const blob = await buildEventReport(event, ctx.tickets, all, { anonymize });
+      downloadBlob(blob, `CSA report ${event.key}${anonymize ? ' (anonymized)' : ''}.docx`);
+      toast(anonymize ? 'Anonymized report downloaded' : 'Report downloaded');
     } catch (e) {
       toast(`Report failed: ${e.message}`);
     } finally {
@@ -603,6 +604,7 @@ const FILTERS = [
 
 function TicketsTab({ ctx, onExport, exporting }) {
   const { event, tickets } = ctx;
+  const [importing, setImporting] = useState(false);
   const [filter, setFilter] = useState('all');
   const [q, setQ] = useState('');
   const shown = sortTickets(tickets).filter((t) => {
@@ -622,6 +624,10 @@ function TicketsTab({ ctx, onExport, exporting }) {
         onClick={() => nav(`/event/${event.key}/ticket/new`)}>
         <Icon name="plus" size={20} /> New ticket
       </button>
+      <button className="btn block" style={{ marginTop: -6, marginBottom: 14 }} onClick={() => setImporting(true)}>
+        <Icon name="paste" size={20} /> Import from a Nexus Slack message
+      </button>
+      {importing && <NexusImport event={event} onClose={() => setImporting(false)} />}
       <div className="inline" style={{ marginBottom: 10 }}>
         {FILTERS.map(([k, l]) => (
           <button key={k} className="chip" aria-pressed={filter === k} onClick={() => setFilter(k)}>
@@ -640,9 +646,74 @@ function TicketsTab({ ctx, onExport, exporting }) {
           {tickets.length ? 'No tickets match this filter.' : 'No tickets yet. Log the first one when a team asks for help.'}
         </p>
       )}
-      <button className="btn block" style={{ marginTop: 18 }} onClick={onExport} disabled={exporting}>
-        <Icon name="report" size={20} /> {exporting ? 'Building report…' : 'Export event report (.docx)'}
+      <button className="btn block" style={{ marginTop: 18 }} onClick={() => onExport(false)} disabled={!!exporting}>
+        <Icon name="report" size={20} /> {exporting === 'full' ? 'Building report…' : 'Export event report (.docx)'}
       </button>
+      <button className="btn block" style={{ marginTop: 8 }} onClick={() => onExport(true)} disabled={!!exporting}>
+        <Icon name="report" size={20} /> {exporting === 'anon' ? 'Building report…' : 'Export anonymized report'}
+      </button>
+      <p className="hint">
+        The anonymized report swaps every team number and team name for a random placeholder like
+        “focused_lovelace”, including inside ticket text. Names change with every export.
+      </p>
     </>
+  );
+}
+
+/** Paste a Nexus technical-help request from Slack; shows what was picked out of it, then
+ *  opens the ticket form pre-filled so nothing is saved until it's reviewed. */
+function NexusImport({ event, onClose }) {
+  const [text, setText] = useState('');
+  const parsed = text.trim() ? parseNexusMessage(text, event) : null;
+  const onRoster = parsed?.team && event.teams.some((t) => t.number === parsed.team);
+
+  async function pasteClipboard() {
+    try {
+      setText(await navigator.clipboard.readText());
+    } catch {
+      toast('Clipboard access was blocked. Long-press the box and paste instead.');
+    }
+  }
+
+  function open() {
+    stashDraft(parsed);
+    onClose();
+    nav(`/event/${event.key}/ticket/import`);
+  }
+
+  return (
+    <Modal title="Import from Nexus" onClose={onClose}>
+      <div className="stack">
+        <p className="small muted" style={{ margin: 0 }}>
+          In Slack, long-press the Nexus help-request message, choose Copy text, and paste it here.
+        </p>
+        <textarea className="input" rows={6} autoFocus value={text} onChange={(e) => setText(e.target.value)}
+          placeholder="Paste the Nexus message…" aria-label="Nexus Slack message" />
+        {navigator.clipboard?.readText && (
+          <div><button className="btn" style={{ minHeight: 36 }} onClick={pasteClipboard}>Paste from clipboard</button></div>
+        )}
+        {parsed && (
+          <div className="sheet sheet-pad">
+            <dl className="dl">
+              <dt>Team</dt>
+              <dd>
+                {parsed.team ?? <span className="error">Not found — pick it on the next screen</span>}
+                {parsed.team && !onRoster && <span className="muted"> (not on this event's roster)</span>}
+              </dd>
+              {parsed.pit && (<><dt>Pit</dt><dd>{parsed.pit}</dd></>)}
+              <dt>Title</dt><dd>{parsed.title}</dd>
+              <dt>Tags</dt><dd>{parsed.tags.length ? parsed.tags.join(', ') : 'None matched'}</dd>
+              <dt>Last match</dt>
+              <dd>
+                {parsed.lastMatch || (parsed.mentionedMatch
+                  ? `Not set (${parsed.mentionedMatch} looks like their next match)`
+                  : 'Not found — filled from TBA if possible')}
+              </dd>
+            </dl>
+          </div>
+        )}
+        <button className="btn primary" disabled={!parsed} onClick={open}>Review as a new ticket</button>
+      </div>
+    </Modal>
   );
 }

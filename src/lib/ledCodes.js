@@ -16,6 +16,23 @@ function sw(colors, mode, opts = {}) {
 
 export const LED_REFERENCE = [
   {
+    brand: 'Robot radio',
+    device: 'Vivid-Hosting VH-109',
+    note: 'Five LEDs on top: PWR, SYS, 2.4G, 6G, RIO. PWR/SYS patterns are from Vivid-Hosting\'s LED status page; 2.4G, 6G and RIO are plain link lights. Check frc-radio.vivid-hosting.net for firmware-specific states.',
+    rows: [
+      { pattern: 'PWR off', meaning: 'No power — check the barrel/PoE feed and the VRM/PDH radio output', swatch: sw([], 'off') },
+      { pattern: 'PWR solid, SYS off', meaning: 'Powered on and still booting — give it up to a minute', swatch: sw(['green'], 'solid') },
+      { pattern: 'PWR solid, SYS blinking slowly (1 Hz)', meaning: "Powered on but can't reach the other radio (can't ping 10.TE.AM.4) — not linked to the field or your access point yet", swatch: sw(['green'], 'blink', { speed: 'slow' }) },
+      { pattern: 'PWR solid, SYS solid', meaning: 'Powered on and linked to the other radio (field or access point)', swatch: sw(['green'], 'solid', { leds: 2 }) },
+      { pattern: 'PWR solid, SYS blinking very fast (20 Hz)', meaning: 'Firmware is being flashed — do not unplug it', swatch: sw(['green'], 'blink', { speed: 'fast' }) },
+      { pattern: 'PWR solid, SYS flickering (50 Hz)', meaning: 'Firmware flash succeeded; running its first-boot sequence', swatch: sw(['green'], 'blink', { speed: 'fast' }) },
+      { pattern: 'SYS, 2.4G and 6G all blinking fast together', meaning: 'Radio is set to access-point mode but detected a robot battery — wireless is disabled. Reprogram it as a robot radio, then power cycle', swatch: sw(['red'], 'blink', { leds: 3, speed: 'fast' }) },
+      { pattern: '6G lit', meaning: '6 GHz link to the field/access point is up (the robot-to-field link)', swatch: sw(['green'], 'solid') },
+      { pattern: '2.4G lit', meaning: '2.4 GHz Wi-Fi is on (used for programming/tethering at home, not on the field)', swatch: sw(['green'], 'solid') },
+      { pattern: 'RIO off', meaning: 'No Ethernet link to the robot controller — reseat the cable at both ends, try another cable or port', swatch: sw([], 'off') },
+    ],
+  },
+  {
     brand: 'CTRE',
     device: 'Talon FX / Talon FXS / Kraken X60',
     note: 'Two status LEDs on the controller face.',

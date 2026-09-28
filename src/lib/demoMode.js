@@ -1,7 +1,8 @@
 import { db, getSetting, setSetting } from './db.js';
-import { seedDevEvent } from './devSeed.js';
+import { DEMO_EVENT_KEYS, removeDemoData, seedDevEvent } from './devSeed.js';
 
-const DEMO_EVENT_KEYS = ['2026demo', '2026demo2'];
+// Bump when the demo dataset changes shape so returning visitors get the new version.
+const DEMO_VERSION = 2;
 
 /** True when running as an installed app (home-screen PWA) rather than in a browser tab. */
 export function isInstalledApp() {
@@ -30,15 +31,22 @@ export const DEMO_MODE = DEMO_BUILD && !isInstalledApp();
  *  a real one) so it never clobbers real data. */
 export async function ensureDemoSeeded() {
   if (!DEMO_MODE) return false;
-  const already = await getSetting('demoSeeded', false);
-  if (already) return false;
+  const seeded = await getSetting('demoSeeded', false);
+  if (seeded === DEMO_VERSION) return false;
   const events = await db.all('events');
-  if (events.length > 0) {
-    await setSetting('demoSeeded', true);
+  const onlyDemo = events.every((e) => DEMO_EVENT_KEYS.includes(e.key));
+  // First visit with real events already added: leave them alone.
+  if (!seeded && events.length > 0) {
+    await setSetting('demoSeeded', DEMO_VERSION);
+    return false;
+  }
+  // Returning visitor on an older demo dataset: refresh it, unless they've added real events.
+  if (seeded && !onlyDemo) {
+    await setSetting('demoSeeded', DEMO_VERSION);
     return false;
   }
   await seedDevEvent();
-  await setSetting('demoSeeded', true);
+  await setSetting('demoSeeded', DEMO_VERSION);
   return true;
 }
 
@@ -48,11 +56,7 @@ export async function ensureDemoSeeded() {
 export async function removeDemoDataIfInstalled() {
   if (!DEMO_BUILD || !isInstalledApp()) return false;
   if (await getSetting('demoRemovedForApp', false)) return false;
-  const keys = new Set(DEMO_EVENT_KEYS);
-  const [tickets, readiness] = await Promise.all([db.all('tickets'), db.all('readiness')]);
-  for (const t of tickets) if (keys.has(t.eventKey)) await db.del('tickets', t.id);
-  for (const r of readiness) if (keys.has(r.eventKey)) await db.del('readiness', r.id);
-  for (const k of keys) await db.del('events', k);
+  await removeDemoData();
   await setSetting('demoRemovedForApp', true);
   return true;
 }

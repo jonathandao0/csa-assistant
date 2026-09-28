@@ -88,12 +88,13 @@ function DocLinks() {
   );
 }
 
-/** Offline lookup for CTRE/REV status-LED blink codes, for diagnosing hardware in the pit
- *  without needing a signal to search for it. Each device is a collapsible box; a search
- *  opens every device that has a match. */
+/** Offline lookup for radio/CTRE/REV status-LED blink codes, for diagnosing hardware in the pit
+ *  without needing a signal to search for it. Each device is a collapsible box (all open by
+ *  default); a search opens every device that has a match. Online doc links sit at the bottom. */
 export default function LedReference() {
   const [q, setQ] = useState('');
-  const [open, setOpen] = useState(() => new Set());
+  // Tracks collapsed devices rather than open ones, so everything starts expanded.
+  const [closed, setClosed] = useState(() => new Set());
   const query = q.trim().toLowerCase();
 
   const devices = LED_REFERENCE.map((d) => ({
@@ -107,20 +108,19 @@ export default function LedReference() {
   for (const d of devices) (byBrand[d.brand] ??= []).push(d);
 
   const toggle = (device) =>
-    setOpen((prev) => {
+    setClosed((prev) => {
       const next = new Set(prev);
       if (next.has(device)) next.delete(device);
       else next.add(device);
       return next;
     });
-  const allOpen = !query && LED_REFERENCE.every((d) => open.has(d.device));
+  const allOpen = closed.size === 0;
 
   return (
     <>
-      <DocLinks />
       <div className="section-head"><h2>Status lights</h2>
         {!query && (
-          <button className="chip" onClick={() => setOpen(allOpen ? new Set() : new Set(LED_REFERENCE.map((d) => d.device)))}>
+          <button className="chip" onClick={() => setClosed(allOpen ? new Set(LED_REFERENCE.map((d) => d.device)) : new Set())}>
             {allOpen ? 'Collapse all' : 'Expand all'}
           </button>
         )}
@@ -135,7 +135,7 @@ export default function LedReference() {
           <section className="section" key={brand}>
             <h3 className="brand-head">{brand}</h3>
             {brandDevices.map((d) => {
-              const isOpen = !!query || open.has(d.device);
+              const isOpen = !!query || !closed.has(d.device);
               return (
                 <div key={d.device} className="led-device sheet">
                   <button className="led-device-head" aria-expanded={isOpen} onClick={() => toggle(d.device)}
@@ -167,9 +167,10 @@ export default function LedReference() {
         ))
       )}
       <p className="hint">
-        Compiled from official CTRE and REV documentation. Firmware adds new states over time —
-        check the manufacturer's docs if a light doesn't match anything here.
+        Compiled from official Vivid-Hosting, CTRE and REV documentation. Firmware adds new states
+        over time — check the manufacturer's docs if a light doesn't match anything here.
       </p>
+      <DocLinks />
     </>
   );
 }

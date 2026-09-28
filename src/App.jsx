@@ -11,7 +11,7 @@ import { useRoute } from './lib/router.js';
 //   #/settings
 //   #/event/:key[/tab/:tab]         event tabs
 //   #/event/:key/team/:number
-//   #/event/:key/ticket/:id         (id "new" or "followup", optional /:team)
+//   #/event/:key/ticket/:id         (id "new", "followup" or "import", optional /:team)
 export default function App() {
   const [section, key, kind, a, b] = useRoute();
   let page = <Home />;

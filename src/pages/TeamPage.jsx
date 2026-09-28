@@ -112,6 +112,8 @@ export default function TeamPage({ eventKey, number }) {
           {here.length > 6 && <p className="hint">Showing 6 of {here.length}. See the Tickets tab for all.</p>}
         </section>
 
+        <IssuesByMatch event={event} number={number} tickets={here} />
+
         <IssuesOverTime teamTickets={seasonTickets} />
 
         <HistorySection number={number} year={event.year} teamTickets={seasonTickets} elsewhere={elsewhere}
@@ -221,6 +223,91 @@ function NotesSection({ eventKey, number, record }) {
   );
 }
 
+/** Stacked bars of this team's tickets at this event, one column per match they've played
+ *  (plus any later match a ticket names), bucketed by the ticket's "last match played". A
+ *  column of issues right after a particular match is the thing to spot; tickets from before
+ *  their first match, a practice match, or N/A go in a leading "Pre" column. */
+function IssuesByMatch({ event, number, tickets }) {
+  if (!tickets.length) return null;
+  const schedule = teamMatches(event, number).map((m) => ({ label: matchLabel(m), played: m.played }));
+  const labels = schedule.map((m) => m.label);
+  const byLabel = {};
+  const pre = [];
+  for (const t of tickets) {
+    if (t.lastMatch && labels.includes(t.lastMatch)) (byLabel[t.lastMatch] ??= []).push(t);
+    else pre.push(t);
+  }
+  // The whole schedule, so the chart reads as a timeline of the event; matches not played
+  // yet are greyed out.
+  const cols = [
+    ...(pre.length ? [{ label: 'Pre', list: pre, played: true }] : []),
+    ...schedule.map((m) => ({ label: m.label, list: byLabel[m.label] ?? [], played: m.played })),
+  ];
+  const max = Math.max(1, ...cols.map((c) => c.list.length));
+  const order = ['unresolved', 'declined', 'resolved'];
+
+  const colW = 30;
+  const barW = 18;
+  const chartH = 76;
+  const W = Math.max(cols.length * colW, colW);
+  const H = chartH + 18;
+  const unit = (chartH - 6) / max;
+
+  return (
+    <section className="section">
+      <div className="section-head">
+        <h2>Issues by match</h2>
+        <span className="aside">{tickets.length} ticket{tickets.length === 1 ? '' : 's'} here</span>
+      </div>
+      <div className="sheet sheet-pad">
+        <div style={{ overflowX: 'auto' }}>
+          <svg viewBox={`0 0 ${W} ${H}`} style={{ width: W, height: 'auto', display: 'block' }}
+            role="img" aria-label="Tickets for this team at this event, grouped by the match before each was logged">
+            <line x1="0" y1={chartH} x2={W} y2={chartH} style={{ stroke: 'var(--line)', strokeWidth: 1 }} />
+            {cols.map((c, i) => {
+              const x = i * colW + (colW - barW) / 2;
+              let y = chartH;
+              const sorted = [...c.list].sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status));
+              return (
+                <g key={c.label}>
+                  {sorted.map((t) => {
+                    y -= unit;
+                    return (
+                      <rect key={t.id} x={x} y={y + 1} width={barW} height={unit - 1} rx="2"
+                        style={{ fill: STATUS_COLOR[t.status] ?? 'var(--muted)', cursor: 'pointer' }}
+                        onClick={() => nav(`/event/${t.eventKey}/ticket/${t.id}`)}>
+                        <title>{`${c.label}: ${t.title}`}</title>
+                      </rect>
+                    );
+                  })}
+                  {c.list.length > 0 && (
+                    <text x={x + barW / 2} y={y - 2} textAnchor="middle" style={{ fontSize: 10, fontWeight: 600, fill: 'var(--muted)' }}>
+                      {c.list.length}
+                    </text>
+                  )}
+                  <text x={x + barW / 2} y={chartH + 11} textAnchor="middle"
+                    style={{ fontSize: 9, fill: c.list.length ? 'var(--ink)' : 'var(--muted)', opacity: c.played ? 1 : 0.5 }}>
+                    {c.label}
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+        <div className="legend" style={{ marginTop: 4, justifyContent: 'center' }}>
+          <span><i style={{ background: 'var(--st-watch)' }} /> Unresolved</span>
+          <span><i style={{ background: 'var(--st-ready)' }} /> Resolved</span>
+          <span><i style={{ background: 'var(--muted)' }} /> Declined</span>
+        </div>
+        <p className="hint" style={{ margin: '6px 0 0' }}>
+          Each block is one ticket, placed at the match it was logged after (its last match played). Greyed
+          matches haven't been played yet. Tap a block to open it.
+        </p>
+      </div>
+    </section>
+  );
+}
+
 const PRIORITY_RANK = Object.fromEntries(PRIORITIES.map(([k], i) => [k, i]));
 const STATUS_COLOR = { unresolved: 'var(--st-watch)', resolved: 'var(--st-ready)', declined: 'var(--muted)' };
 
@@ -279,7 +366,7 @@ function IssuesOverTime({ teamTickets }) {
           <span><i style={{ background: 'var(--muted)' }} /> Declined</span>
         </div>
         <p className="hint" style={{ margin: '6px 0 0' }}>
-          Each dot is one ticket, in order by match/time — height is priority (low → critical). Tap a dot to open it.
+          Each dot is one ticket, in order by match/time — height is priority (normal or high). Tap a dot to open it.
         </p>
       </div>
     </section>

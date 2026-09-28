@@ -8,18 +8,32 @@ import { useEffect, useState } from 'react';
 //  tickets    { id, eventKey, eventName, team, title, ... links[] }
 //  media      { id: `${team}:${year}`, photos[], avatar }  (from TBA)
 //  photos     { id: `${team}`, dataUrl, year }            (taken by you)
-const dbPromise = openDB('csa-assistant', 1, {
-  upgrade(db) {
-    db.createObjectStore('settings');
-    db.createObjectStore('events', { keyPath: 'key' });
-    db.createObjectStore('readiness', { keyPath: 'id' });
-    const tickets = db.createObjectStore('tickets', { keyPath: 'id' });
-    tickets.createIndex('eventKey', 'eventKey');
-    tickets.createIndex('team', 'team');
-    db.createObjectStore('media', { keyPath: 'id' });
-    db.createObjectStore('photos', { keyPath: 'id' });
+const dbPromise = openDB('csa-assistant', 2, {
+  async upgrade(db, oldVersion, newVersion, tx) {
+    if (oldVersion < 1) createStores(db);
+    // v2: ticket priorities collapsed from low/medium/high/critical to normal/high.
+    if (oldVersion >= 1 && oldVersion < 2) {
+      let cursor = await tx.objectStore('tickets').openCursor();
+      while (cursor) {
+        const t = cursor.value;
+        const priority = t.priority === 'high' || t.priority === 'critical' ? 'high' : 'normal';
+        if (priority !== t.priority) await cursor.update({ ...t, priority });
+        cursor = await cursor.continue();
+      }
+    }
   },
 });
+
+function createStores(db) {
+  db.createObjectStore('settings');
+  db.createObjectStore('events', { keyPath: 'key' });
+  db.createObjectStore('readiness', { keyPath: 'id' });
+  const tickets = db.createObjectStore('tickets', { keyPath: 'id' });
+  tickets.createIndex('eventKey', 'eventKey');
+  tickets.createIndex('team', 'team');
+  db.createObjectStore('media', { keyPath: 'id' });
+  db.createObjectStore('photos', { keyPath: 'id' });
+}
 
 export const STORES = ['settings', 'events', 'readiness', 'tickets', 'media', 'photos'];
 

@@ -57,7 +57,7 @@ from @fontsource. Plain JavaScript and JSX, no TypeScript.
 | 7 | Colors | Red = 0 of 3, orange = 1–2 of 3, green = 3 of 3. **Day 1:** an unresolved ticket does NOT change the color. **Days 2 and 3:** an unresolved ticket turns the team **yellow**. |
 | 8 | Event day | From TBA `start_date`. **Districts (event_type 1) = 2 days, everything else = 3 days.** |
 | 9 | Days 2–3 priority | Teams with open tickets rank first, then order by next match. |
-| 10 | Ticket fields | Timestamp, last match number, tags for common issues, priority. |
+| 10 | Ticket fields | Timestamp, last match number, tags for common issues, priority (**Normal or High** only — the original low/medium/high/critical was collapsed; see data model). |
 | 11 | Ticket ↔ team | Each ticket belongs to exactly **one** team. |
 | 12 | History | Team history persists across events, shown as a short summary of prior-event issues on the team page. |
 | 13 | Robot photo | Pulled from TBA media if available. Otherwise the user adds one from camera or gallery. |
@@ -74,14 +74,17 @@ the owner asks otherwise:
 - **removing an event from the Home screen** as well as from the event page's Tickets tab;
 - **ignoring a team** (didn't show up) — colors it black everywhere and drops it out of the priority list, toggled from the team page;
 - a freeform **Notes** box per team per event, for things that aren't a ticket;
-- **Flag for follow-up**: a low-priority, pre-tagged (`Follow-up`) ticket draft for "something looked off, check on it later" — opens the ticket form pre-filled rather than saving anything until reviewed;
+- **Flag for follow-up**: a normal-priority, pre-tagged (`Follow-up`) ticket draft for "something looked off, check on it later" — opens the ticket form pre-filled rather than saving anything until reviewed;
 - a **Reference** tab with an offline, searchable CTRE/REV status-LED lookup;
+- **Issues by match** chart on the team page: stacked blocks per ticket, one column per match in the team's schedule at this event (unplayed greyed), keyed by the ticket's `lastMatch`; tickets with no/unknown match go in a leading "Pre" column. Sits above the season-wide "Issues over time" dot chart;
+- **anonymized report**: a second export button on the Tickets tab calls `buildEventReport(..., { anonymize: true })`. `teamLabeller()` in `report.js` maps every team number to a random Docker-style `adjective_surname` (`lib/dockerNames.js`, Docker's lists minus judgemental adjectives), fresh per export; nicknames are dropped, and team numbers (`1234`, `frc1234`) and nicknames inside ticket text are swapped in one regex pass;
+- **Nexus Slack import** (`lib/nexusImport.js`): Tickets tab → "Import from a Nexus Slack message" → paste → preview → the ticket form at route id `import`, pre-filled via a one-slot draft (memory + sessionStorage). The exact Nexus message format was **not verified** (their docs were unreachable from the sandbox), so `parseNexusMessage()` is heuristic: strips Slack markup, finds team (`Team N`/`frcN`/`#N`, else a roster number, else pit → team via Nexus pits), match (a match preceded by "next/queue/upcoming" is not used as last match), issues (bullets, else text after "help with"/"issues:") and tags via keyword rules. Tune it against a real pasted message;
 - a dev-only **Settings** button (`import.meta.env.DEV`) that seeds two fake linked events for UI testing without API keys;
 - **light/dark mode** (`lib/theme.js`): Settings → Appearance (Match device / Light / Dark) plus a sun/moon toggle on Home. Stored in `localStorage` (`csa-theme`) so it applies before first paint; sets `data-theme` on `<html>`. Dark CSS applies under `@media (prefers-color-scheme: dark) :root:not([data-theme='light'])` and under `:root[data-theme='dark']` — any new dark-only rule needs both;
 - the Word report is exported **only** from the button at the bottom of the event's Tickets tab (no top-bar icon);
 - **ticket history is per season**: team-page History, Issues over time, the link picker, `nextTicketSeq()` numbering and the report's chains only consider tickets whose `ticketYear()` (first 4 chars of `eventKey`) matches the event's year. Team page has a "Clear history" button (this team's tickets at other events this season); Settings → Ticket history deletes a whole season or everything. All deletes go through `deleteTickets()` in `util.js`, which strips links on surviving tickets;
 - robot photo viewer: your photo first, then TBA's; broken URLs are probed up front and dropped by URL (not index-shifting, which used to loop); prev/next buttons, swipe, arrow keys, dot indicator;
-- **demo mode** (`lib/demoMode.js`, `DEMO_MODE = DEMO_BUILD && !isInstalledApp()`): the build flag is only true in the build the GitHub Pages workflow produces (`VITE_DEMO_MODE=true` set in `deploy.yml`'s build step, never in a plain `npm run build`). On Home, `ensureDemoSeeded()` runs the same `seedDevEvent()` fake dataset once per browser if no events exist yet, so a public-demo visitor sees a populated example instead of an empty state; a `demoSeeded` setting flag stops it from running again or clobbering real data. Home also shows a banner explaining it's fake data with a "Reload demo data" button (always reseeds, ignoring that flag) and a note on installing it as an app (with an Install button when Chrome's `beforeinstallprompt` fired). When the demo build runs as an installed PWA (`display-mode: standalone` etc.) there's no banner and no seeding, and `removeDemoDataIfInstalled()` deletes the `2026demo`/`2026demo2` events plus their tickets/readiness once (the app shares storage with the browser tab).
+- **demo mode** (`lib/demoMode.js`, `DEMO_MODE = DEMO_BUILD && !isInstalledApp()`): the build flag is only true in the build the GitHub Pages workflow produces (`VITE_DEMO_MODE=true` set in `deploy.yml`'s build step, never in a plain `npm run build`). On Home, `ensureDemoSeeded()` runs the same `seedDevEvent()` fake dataset (teams **99101–99124**, chosen to be far above any real FRC number so nothing matches a real TBA team) once per browser if no events exist yet; `demoSeeded` stores a `DEMO_VERSION`, and bumping it reseeds returning visitors who only have demo events, so a public-demo visitor sees a populated example instead of an empty state; a `demoSeeded` setting flag stops it from running again or clobbering real data. Home also shows a banner explaining it's fake data with a "Reload demo data" button (always reseeds, ignoring that flag) and a note on installing it as an app (with an Install button when Chrome's `beforeinstallprompt` fired). When the demo build runs as an installed PWA (`display-mode: standalone` etc.) there's no banner and no seeding, and `removeDemoDataIfInstalled()` deletes the `2026demo`/`2026demo2` events plus their tickets/readiness once (the app shares storage with the browser tab).
 
 ## Project layout
 
@@ -98,6 +101,8 @@ src/
   lib/util.js            compressImage, backup export/import, toast, downloadBlob, copyText
   lib/router.js          useRoute, nav, replace, goBack
   lib/devSeed.js         seedDevEvent() — fake two-event dataset for the Settings dev-tools button
+  lib/nexusImport.js     parseNexusMessage() + draft hand-off for the Slack import
+  lib/dockerNames.js     random Docker-style names for the anonymized report
   lib/demoMode.js        DEMO_MODE flag, ensureDemoSeeded(), installed-app detection, install prompt
   lib/theme.js           light/dark preference: applyTheme(), useTheme()
   lib/ledCodes.js        static CTRE/REV status-LED reference data (Reference tab)
@@ -120,12 +125,12 @@ public/                  favicon.svg, icons/ (192, 512, maskable 512)
   - `:tab` is one of `map`, `today`, `teams`, `tickets`, `ref`.
 - `#/event/:key/team/:number`
 - `#/event/:key/ticket/:id`
-  - `:id` can be `new` or `followup`, optionally followed by `/:team` to preset the team. `followup` pre-fills a low-priority ticket tagged `Follow-up` but still requires the user to review and save it.
+  - `:id` can be `new`, `followup` or `import`, optionally followed by `/:team` to preset the team. `followup` pre-fills a normal-priority ticket tagged `Follow-up`; `import` pre-fills from a pasted Nexus Slack message. Both still require the user to review and save.
 
 `TeamPage` and `TicketPage` are keyed by their route parameters in `App.jsx`, so that moving
 between linked tickets remounts the page and resets the form.
 
-## Data model (IndexedDB `csa-assistant`, version 1)
+## Data model (IndexedDB `csa-assistant`, version 2)
 
 | Store | Key | Shape |
 |---|---|---|
@@ -146,7 +151,7 @@ Details of the `events` store:
 Details of the `tickets` store:
 
 - `status` is one of `unresolved`, `resolved` or `declined`. The UI labels them "Unresolved / watch", "Resolved" and "Declined help".
-- `priority` is one of `low`, `medium`, `high` or `critical`. The weights are 1, 2, 3 and 5.
+- `priority` is `normal` or `high` (weights 1 and 3). DB version 2's upgrade maps old `low`/`medium` → `normal` and `high`/`critical` → `high`; `importBackup()` applies the same `normalizePriority()` to older backups.
 - **Links are two-way.** `TicketPage.save()` updates the other side of every link it adds or removes. `remove()` also cleans up the other side. The "Link a ticket" picker only ever offers the *same team's* other tickets (across any event) — cross-team linking isn't offered, since a continuing-issue link only makes sense within one team.
 - On the ticket page, "Linked tickets" is shown after the Save button (not before), and "Copy ticket as text" is a full-width button at the very bottom of the page (not a top-bar icon) — both are deliberately placed for visibility rather than tucked above the fold with the edit fields.
 - `eventName` is stored on the ticket itself, so history still reads correctly after its event is removed.
@@ -239,10 +244,10 @@ schedule, not the calendar day, so a rain delay or an early start doesn't fool i
 - If a Nexus map with pits exists, the tab order is Pit map, Priority list, Teams, Tickets, Reference.
 - If not, it is Teams, Priority list, Tickets, Pit map, Reference. The Pit map tab then shows the N/A graphic along with the reason.
 - The Priority list tab's title and heading are constant ("Priority list") regardless of phase or event type; only the content underneath changes between the practice-phase readiness view and the event-phase match-priority view. It has its own sort control (team number, priority, or unresolved-ticket count, each ascending/descending) that only re-sorts on an explicit re-sort action (button or pull-to-refresh gesture) — not automatically as readiness/tickets change, so rows don't jump while you're working through the list.
-- Reference starts with a list of online documentation links (WPILib, CTRE Phoenix 6/5, REVLib, REV hardware, FRC radio), then static, offline content (`lib/ledCodes.js` + `components/LedReference.jsx`) — each device is a collapsible box (all collapsed by default, "Expand all" toggle, searching opens every match) with zebra-striped rows; a searchable lookup of CTRE/REV status-LED blink codes, each with a small animated color swatch (`.led-dot` / `.led-blink` / `.led-alt` in `styles.css`) approximating solid/blinking/alternating patterns. It doesn't read the event at all, so it renders the same regardless of which event is open.
+- Reference is static, offline content with the online documentation links (WPILib, CTRE Phoenix 6/5, REVLib, REV hardware, FRC radio) at the **bottom**. The LED tables start with the **VH-109 robot radio** (PWR/SYS patterns from Vivid-Hosting's LED page via search snippets — the page itself was unreachable, so 2.4G/6G/RIO rows are generic link-light descriptions worth checking), then CTRE and REV (`lib/ledCodes.js` + `components/LedReference.jsx`) — each device is a collapsible box (all **open** by default, "Expand all" toggle, searching opens every match) with zebra-striped rows; a searchable lookup of CTRE/REV status-LED blink codes, each with a small animated color swatch (`.led-dot` / `.led-blink` / `.led-alt` in `styles.css`) approximating solid/blinking/alternating patterns. It doesn't read the event at all, so it renders the same regardless of which event is open.
 - The pit map's "find a team" box and the ticket form's Team field are both typeahead comboboxes (`.combo-wrap`/`.combo-list` in `styles.css`) that filter the event's roster as you type a team number, rather than a plain `<select>`.
 - The ticket form's "Last match played" is a dropdown listing the team's whole schedule (not filtered to already-played matches — TBA can lag a few minutes behind a live match), plus "N/A" and an "Other / practice match…" option that reveals a free-text field.
-- "Flag for follow-up" (Teams tab, match-priority rows, team page) never writes a ticket in the background — it navigates to the ticket form pre-filled with a low-priority "Possible issue — follow up" draft and the `Follow-up` tag (route id `followup` instead of `new`), so nothing is saved until the user reviews it and taps Create.
+- "Flag for follow-up" (Teams tab, match-priority rows, team page) never writes a ticket in the background — it navigates to the ticket form pre-filled with a "Possible issue — follow up" draft and the `Follow-up` tag (route id `followup` instead of `new`), so nothing is saved until the user reviews it and taps Create.
 
 **Day 1 priorities.**
 

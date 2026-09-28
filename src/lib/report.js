@@ -21,6 +21,7 @@ import {
   tagCounts,
   ticketChains,
 } from './logic.js';
+import { dockerNames } from './dockerNames.js';
 
 const FONT = 'Calibri';
 const BLUE = '0B5CAD';
@@ -86,10 +87,53 @@ function difficultyScore(chain) {
 const time = (ms) =>
   new Date(ms).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
 
-/** Builds the event summary as a .docx Blob. */
-export async function buildEventReport(event, eventTickets, allTickets) {
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Team labelling for the report. Anonymized, every team number becomes a random Docker-style
+ *  name ("focused_lovelace"), nicknames are dropped, and team numbers or nicknames that turn
+ *  up inside ticket text are swapped for the same name. */
+function teamLabeller(event, allTickets, anonymize) {
+  const nickname = Object.fromEntries(event.teams.map((t) => [t.number, t.nickname]));
+  if (!anonymize) {
+    return {
+      team: (n) => `Team ${n}`,
+      id: (n) => String(n),
+      withNick: (n) => `Team ${n}${nickname[n] ? ` (${nickname[n]})` : ''}`,
+      scrub: (text) => text,
+    };
+  }
+  const numbers = [...new Set([...event.teams.map((t) => t.number), ...allTickets.map((t) => t.team)])];
+  const names = dockerNames(numbers);
+  // Nicknames long enough not to match ordinary words, longest first so "Robo Rams 2" wins
+  // over "Robo Rams". One combined pattern replaced in a single pass, so an inserted name is
+  // never re-matched by a later swap.
+  const byNick = new Map();
+  for (const n of numbers) {
+    const nick = nickname[n]?.trim();
+    if (nick && nick.length >= 4 && !/^\d+$/.test(nick)) byNick.set(nick.toLowerCase(), names.get(n));
+  }
+  const nickAlts = [...byNick.keys()].sort((x, y) => y.length - x.length).map(escapeRe);
+  const pattern = new RegExp(
+    `${nickAlts.length ? `(?<!\\w)(${nickAlts.join('|')})(?!\\w)|` : ''}(?<![\\w.])(?:frc)?(\\d{1,6})(?![\\w.])`,
+    'gi',
+  );
+  const swap = (match, nick, num) =>
+    nick ? byNick.get(nick.toLowerCase()) : names.get(Number(num)) ?? match;
+  // With no nickname group, the number is the first capture.
+  const replacer = nickAlts.length ? swap : (match, num) => swap(match, undefined, num);
+  return {
+    team: (n) => names.get(n),
+    id: (n) => names.get(n),
+    withNick: (n) => names.get(n),
+    scrub: (text) => (text ? text.replace(pattern, replacer) : text),
+  };
+}
+
+/** Builds the event summary as a .docx Blob. With `anonymize`, team identities are replaced
+ *  by random Docker-style names (see teamLabeller). */
+export async function buildEventReport(event, eventTickets, allTickets, { anonymize = false } = {}) {
   const allById = Object.fromEntries(allTickets.map((t) => [t.id, t]));
-  const teamName = Object.fromEntries(event.teams.map((t) => [t.number, t.nickname]));
+  const label = teamLabeller(event, allTickets, anonymize);
   const tickets = [...eventTickets].sort((a, b) => a.createdAt - b.createdAt);
 
   const count = (s) => tickets.filter((t) => t.status === s).length;
@@ -110,7 +154,9 @@ export async function buildEventReport(event, eventTickets, allTickets) {
   const children = [
     new Paragraph({
       spacing: { after: 60 },
-      children: [new TextRun({ text: 'CSA event report', font: FONT, size: 40, bold: true, color: BLUE })],
+      children: [
+        new TextRun({ text: `CSA event report${anonymize ? ' (anonymized)' : ''}`, font: FONT, size: 40, bold: true, color: BLUE }),
+      ],
     }),
     new Paragraph({
       spacing: { after: 60 },
@@ -122,6 +168,9 @@ export async function buildEventReport(event, eventTickets, allTickets) {
         .join(', ')}`,
       { run: { color: '5B6875' } },
     ),
+    ...(anonymize
+      ? [p('Team numbers and names are replaced with random placeholder names that change with every export.', { run: { color: '5B6875', italics: true } })]
+      : []),
     p(`Prepared ${new Date().toLocaleString()}`, {
       run: { color: '5B6875' },
       border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: BLUE, space: 4 } },
@@ -178,16 +227,16 @@ export async function buildEventReport(event, eventTickets, allTickets) {
     children.push(
       p(
         c.length > 1
-          ? `Team ${teams.join(', ')} had ${c.length} linked tickets${
+          ? `${teams.map(label.team).join(', ')} had ${c.length} linked tickets${
               events.length > 1 ? ` across ${events.length} events (${events.join('; ')})` : ''
             }. The chain is listed oldest first.`
-          : `Team ${teams[0]}${teamName[teams[0]] ? ` (${teamName[teams[0]]})` : ''} had the highest-priority issue of the event.`,
+          : `${label.withNick(teams[0])} had the highest-priority issue of the event.`,
       ),
     );
     for (const t of c) {
       children.push(
         bullet([
-          new TextRun({ text: `${t.title}`, font: FONT, size: 22, bold: true }),
+          new TextRun({ text: label.scrub(t.title), font: FONT, size: 22, bold: true }),
           new TextRun({
             text: ` — ${t.eventKey}, ${time(t.createdAt)}, ${priorityLabel[t.priority]} priority, ${
               TICKET_STATUS[t.status].short
@@ -197,8 +246,8 @@ export async function buildEventReport(event, eventTickets, allTickets) {
           }),
         ]),
       );
-      if (t.description) children.push(p(`Issue: ${t.description}`, { indent: { left: 720 } }));
-      if (t.resolution) children.push(p(`Resolution: ${t.resolution}`, { indent: { left: 720 } }));
+      if (t.description) children.push(p(`Issue: ${label.scrub(t.description)}`, { indent: { left: 720 } }));
+      if (t.resolution) children.push(p(`Resolution: ${label.scrub(t.resolution)}`, { indent: { left: 720 } }));
     }
   } else {
     children.push(p('No tickets to evaluate.'));
@@ -207,7 +256,7 @@ export async function buildEventReport(event, eventTickets, allTickets) {
   if (repeatTeams.length) {
     children.push(heading('Teams with repeat tickets', HeadingLevel.HEADING_2));
     for (const [team, n] of repeatTeams) {
-      children.push(bullet(`Team ${team}${teamName[team] ? ` (${teamName[team]})` : ''}: ${n} tickets`));
+      children.push(bullet(`${label.withNick(Number(team))}: ${n} tickets`));
     }
   }
 
@@ -215,7 +264,7 @@ export async function buildEventReport(event, eventTickets, allTickets) {
   children.push(heading('Still unresolved at report time', HeadingLevel.HEADING_2));
   if (open.length) {
     for (const t of open) {
-      children.push(bullet(`Team ${t.team}: ${t.title} (${priorityLabel[t.priority]} priority)`));
+      children.push(bullet(`${label.team(t.team)}: ${label.scrub(t.title)} (${priorityLabel[t.priority]} priority)`));
     }
   } else {
     children.push(p('None.'));
@@ -227,16 +276,16 @@ export async function buildEventReport(event, eventTickets, allTickets) {
       table(
         [
           { label: 'Time', width: 1400 },
-          { label: 'Team', width: 900 },
-          { label: 'Issue', width: 3060 },
+          { label: 'Team', width: anonymize ? 1800 : 900 },
+          { label: 'Issue', width: anonymize ? 2160 : 3060 },
           { label: 'Tags', width: 1800 },
           { label: 'Priority', width: 1000 },
           { label: 'Status', width: 1200 },
         ],
         tickets.map((t) => [
           time(t.createdAt),
-          t.team,
-          t.title + (t.lastMatch ? ` (after ${t.lastMatch})` : ''),
+          label.id(t.team),
+          label.scrub(t.title) + (t.lastMatch ? ` (after ${t.lastMatch})` : ''),
           (t.tags ?? []).join(', '),
           priorityLabel[t.priority],
           TICKET_STATUS[t.status].short,
@@ -249,7 +298,7 @@ export async function buildEventReport(event, eventTickets, allTickets) {
 
   const doc = new Document({
     creator: 'CSA Assistant',
-    title: `CSA report – ${event.name}`,
+    title: `CSA report – ${event.name}${anonymize ? ' (anonymized)' : ''}`,
     styles: {
       default: { document: { run: { font: FONT, size: 22 } } },
       paragraphStyles: [

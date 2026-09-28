@@ -1,4 +1,5 @@
 import { STORES, db } from './db.js';
+import { normalizePriority } from './logic.js';
 
 /** Shrinks a camera photo to a reasonable size before storing it on the device. */
 export function compressImage(file, maxSide = 1400, quality = 0.8) {
@@ -40,7 +41,9 @@ export async function importBackup(file) {
     if (s === 'settings') {
       for (const [k, v] of rows) await db.put('settings', v, k);
     } else if (rows.length) {
-      await db.putMany(s, rows);
+      // Older backups carry the retired low/medium/critical priorities.
+      const fixed = s === 'tickets' ? rows.map((t) => ({ ...t, priority: normalizePriority(t.priority) })) : rows;
+      await db.putMany(s, fixed);
     }
   }
 }

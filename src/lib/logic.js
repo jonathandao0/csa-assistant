@@ -11,12 +11,16 @@ export const TICKET_STATUS = {
 };
 
 export const PRIORITIES = [
-  ['low', 'Low'],
-  ['medium', 'Medium'],
+  ['normal', 'Normal'],
   ['high', 'High'],
-  ['critical', 'Critical'],
 ];
-export const PRIORITY_WEIGHT = { low: 1, medium: 2, high: 3, critical: 5 };
+export const PRIORITY_WEIGHT = { normal: 1, high: 3 };
+
+/** Maps the old four-level priorities (low/medium/high/critical) onto normal/high. Used by
+ *  the v2 database upgrade and when restoring an older backup. */
+export function normalizePriority(p) {
+  return p === 'high' || p === 'critical' ? 'high' : 'normal';
+}
 
 export const TAG_CATEGORIES = [
   ['Electrical', ['Radio', 'Systemcore', 'CAN bus', 'Brownout / power', 'Battery', 'Wiring', 'Motor controller']],

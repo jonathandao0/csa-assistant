@@ -20,6 +20,7 @@ const paths = {
   trash: 'M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13',
   flag: 'M6 21V4M6 4h12l-2.5 4L18 12H6',
   copy: 'M9 9h11v11H9zM6 15H4V4h11v2',
+  paste: 'M9 4h6v3H9zM9 5.5H6V21h12V5.5h-3M9 12h6M9 16h4',
 };
 
 export function Icon({ name, size = 22 }) {

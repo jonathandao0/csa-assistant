@@ -386,9 +386,6 @@ button.mark:not(.done) {
   color: var(--muted);
 }
 .prio.high {
-  color: var(--st-partial);
-}
-.prio.critical {
   color: var(--danger);
 }
 .count-badge {

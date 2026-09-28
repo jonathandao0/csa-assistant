@@ -16,6 +16,7 @@ import {
   ticketToText,
 } from '../lib/logic.js';
 import { goBack, nav } from '../lib/router.js';
+import { clearDraft, readDraft } from '../lib/nexusImport.js';
 import { copyText, toast } from '../lib/util.js';
 
 const CUSTOM_MATCH = '__custom__';
@@ -27,7 +28,7 @@ const blank = (eventKey, team, followUp) => ({
   title: followUp ? 'Possible issue — follow up' : '',
   description: '',
   status: 'unresolved',
-  priority: followUp ? 'low' : 'medium',
+  priority: 'normal',
   tags: followUp ? ['Follow-up'] : [],
   lastMatch: '',
   resolution: '',
@@ -36,7 +37,8 @@ const blank = (eventKey, team, followUp) => ({
 
 export default function TicketPage({ eventKey, id, presetTeam }) {
   const isFollowUp = id === 'followup';
-  const isNew = id === 'new' || isFollowUp;
+  const isImport = id === 'import';
+  const isNew = id === 'new' || isFollowUp || isImport;
   const event = useLive(() => db.get('events', eventKey), [eventKey]);
   const existing = useLive(() => (isNew ? Promise.resolve(null) : db.get('tickets', id)), [id]);
   const allTickets = useLive(() => db.all('tickets'), []);
@@ -53,7 +55,18 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
     if (form || existing === undefined || event === undefined) return;
     if (isNew) {
       const f = blank(eventKey, presetTeam, isFollowUp);
-      if (f.team && event) {
+      const draft = isImport ? readDraft() : null;
+      if (draft) {
+        Object.assign(f, {
+          team: draft.team ?? '',
+          title: draft.title ?? '',
+          description: draft.description ?? '',
+          tags: draft.tags ?? [],
+          lastMatch: draft.lastMatch ?? '',
+        });
+        if (draft.lastMatch) setMatchTouched(true);
+      }
+      if (f.team && event && !f.lastMatch) {
         const last = lastPlayedMatch(event, f.team);
         if (last) f.lastMatch = matchLabel(last);
       }
@@ -64,7 +77,7 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
       setTeamText(existing.team ? String(existing.team) : '');
       setMatchTouched(true);
     }
-  }, [existing, event, form, isNew, isFollowUp, eventKey, presetTeam]);
+  }, [existing, event, form, isNew, isFollowUp, isImport, eventKey, presetTeam]);
 
   const byId = useMemo(() => Object.fromEntries((allTickets ?? []).map((t) => [t.id, t])), [allTickets]);
   const knownTags = useMemo(() => {
@@ -183,6 +196,7 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
       if (o) others.push({ ...o, links: (o.links ?? []).filter((x) => x !== ticketId) });
     }
     await db.putMany('tickets', [ticket, ...others]);
+    if (isImport) clearDraft();
     toast(isNew ? 'Ticket created' : 'Ticket saved');
     goBack(`/event/${eventKey}/tab/tickets`);
   }
@@ -212,7 +226,7 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
   return (
     <>
       <TopBar
-        title={isFollowUp ? 'Flag for follow-up' : isNew ? 'New ticket' : `Ticket ${ticketNumber(form)}`}
+        title={isFollowUp ? 'Flag for follow-up' : isImport ? 'Imported from Nexus' : isNew ? 'New ticket' : `Ticket ${ticketNumber(form)}`}
         subtitle={isNew ? event?.shortName : `Opened ${formatDateTime(form.createdAt)} · ${form.eventName ?? eventKey}`}
         back={() => goBack(`/event/${eventKey}/tab/tickets`)}
         actions={

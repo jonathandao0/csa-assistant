@@ -76,7 +76,8 @@ the owner asks otherwise:
 - a freeform **Notes** box per team per event, for things that aren't a ticket;
 - **Flag for follow-up**: a low-priority, pre-tagged (`Follow-up`) ticket draft for "something looked off, check on it later" — opens the ticket form pre-filled rather than saving anything until reviewed;
 - a **Reference** tab with an offline, searchable CTRE/REV status-LED lookup;
-- a dev-only **Settings** button (`import.meta.env.DEV`) that seeds two fake linked events for UI testing without API keys.
+- a dev-only **Settings** button (`import.meta.env.DEV`) that seeds two fake linked events for UI testing without API keys;
+- **demo mode** (`lib/demoMode.js`, `import.meta.env.VITE_DEMO_MODE === 'true'`): only true in the build the GitHub Pages workflow produces (`VITE_DEMO_MODE=true` set in `deploy.yml`'s build step, never in a plain `npm run build`). On Home, `ensureDemoSeeded()` runs the same `seedDevEvent()` fake dataset once per browser if no events exist yet, so a public-demo visitor sees a populated example instead of an empty state; a `demoSeeded` setting flag stops it from running again or clobbering real data. Home also shows a banner explaining it's fake data with a "Reload demo data" button (always reseeds, ignoring that flag).
 
 ## Project layout
 
@@ -93,6 +94,7 @@ src/
   lib/util.js            compressImage, backup export/import, toast, downloadBlob, copyText
   lib/router.js          useRoute, nav, replace, goBack
   lib/devSeed.js         seedDevEvent() — fake two-event dataset for the Settings dev-tools button
+  lib/demoMode.js        DEMO_MODE flag + ensureDemoSeeded() for the public GitHub Pages demo
   lib/ledCodes.js        static CTRE/REV status-LED reference data (Reference tab)
   components/ui.jsx      Icon, TopBar, TeamBox, ReadinessMarks, StatusPill, TicketRow, Legend, Modal, Toaster
   components/PitMap.jsx  SVG renderer for Nexus map JSON

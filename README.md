@@ -3,7 +3,9 @@
 A Control System Advisor companion for FRC events. It is an installable, offline-capable
 progressive web app (PWA) built with React + Vite. All data lives on your device (IndexedDB).
 
-**Live app:** [jonathandao0.github.io/csa-assistant](https://jonathandao0.github.io/csa-assistant/)
+**Live app:** [jonathandao0.github.io/csa-assistant](https://jonathandao0.github.io/csa-assistant/) —
+the hosted demo auto-loads a fake two-event dataset on first visit so you can look around without
+your own TBA/Nexus keys (see "Demo mode" below). Your own install never does this.
 
 ## Run it locally
 
@@ -39,9 +41,21 @@ rebuilt automatically on every push to `main` by `.github/workflows/deploy.yml`.
 fork or a new repo:
 
 1. Push this folder to a GitHub repository (branch `main`).
-2. In the repo: **Settings → Pages → Source: GitHub Actions**.
+2. In the repo: **Settings → Pages → Source: GitHub Actions** (important — if left on "Deploy
+   from a branch", GitHub's own automatic branch-build job races your workflow's build on every
+   push and can overwrite it with the raw, unbuilt source, leaving a blank page).
 3. The included workflow builds and publishes on every push. The app uses relative paths and
    hash routing, so it works at `username.github.io/repo-name/`.
+
+### Demo mode
+
+The deploy workflow builds with `VITE_DEMO_MODE=true`, which makes `lib/demoMode.js` auto-seed
+the same fake two-event dataset the Settings dev-tools button uses, once per browser, if no
+events exist yet — so a first-time visitor to the public demo sees a populated example instead
+of an empty "add your API key" screen. A banner on Home explains it's fake data and offers a
+"Reload demo data" button. This only happens in a build made with that env var set; a plain
+`npm run build` (for your own real install) never sets it, so it never seeds fake events into
+an actual deployment.
 
 ### About Nexus and cross-origin requests
 

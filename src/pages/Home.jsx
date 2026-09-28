@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Icon, TopBar } from '../components/ui.jsx';
 import { db, getSetting, useLive } from '../lib/db.js';
+import { DEMO_MODE, ensureDemoSeeded } from '../lib/demoMode.js';
+import { seedDevEvent } from '../lib/devSeed.js';
 import { dayCaption, eventDay, formatDateRange } from '../lib/logic.js';
 import { nav } from '../lib/router.js';
 import { getEventIndex, searchEvents, syncEvent } from '../lib/sync.js';
@@ -16,6 +18,21 @@ export default function Home() {
   const [results, setResults] = useState(null);
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState('');
+  const [resettingDemo, setResettingDemo] = useState(false);
+
+  useEffect(() => {
+    if (DEMO_MODE) ensureDemoSeeded();
+  }, []);
+
+  async function resetDemo() {
+    setResettingDemo(true);
+    try {
+      await seedDevEvent();
+      toast('Demo data reloaded');
+    } finally {
+      setResettingDemo(false);
+    }
+  }
 
   const added = new Set((events ?? []).map((e) => e.key));
 
@@ -66,7 +83,17 @@ export default function Home() {
         }
       />
       <main className="page">
-        {hasKey === false && (
+        {DEMO_MODE ? (
+          <div className="notice section">
+            This is a public demo preloaded with fake sample data — no real Blue Alliance or Nexus
+            account needed. Explore freely; nothing here is a real event.
+            <div style={{ marginTop: 8 }}>
+              <button className="btn" style={{ minHeight: 36 }} onClick={resetDemo} disabled={resettingDemo}>
+                {resettingDemo ? 'Reloading…' : 'Reload demo data'}
+              </button>
+            </div>
+          </div>
+        ) : hasKey === false && (
           <div className="notice section">
             Add your Blue Alliance API key to look up events.{' '}
             <a href="#/settings">Open Settings</a>

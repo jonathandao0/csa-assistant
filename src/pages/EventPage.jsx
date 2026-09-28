@@ -685,7 +685,7 @@ function NexusImport({ event, onClose }) {
     <Modal title="Import from Nexus" onClose={onClose}>
       <div className="stack">
         <p className="small muted" style={{ margin: 0 }}>
-          In Slack, long-press the Nexus help-request message, choose Copy text, and paste it here.
+          In Slack, long-press the Nexus message (a team's help request or an FTA follow-up), choose Copy text, and paste it here.
         </p>
         <textarea className="input" rows={6} autoFocus value={text} onChange={(e) => setText(e.target.value)}
           placeholder="Paste the Nexus message…" aria-label="Nexus Slack message" />
@@ -695,6 +695,7 @@ function NexusImport({ event, onClose }) {
         {parsed && (
           <div className="sheet sheet-pad">
             <dl className="dl">
+              <dt>Type</dt><dd>{parsed.kind === 'fta' ? 'FTA follow-up request' : 'Team help request'}</dd>
               <dt>Team</dt>
               <dd>
                 {parsed.team ?? <span className="error">Not found — pick it on the next screen</span>}

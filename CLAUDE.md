@@ -123,7 +123,7 @@ between linked tickets remounts the page and resets the form.
 | Store | Key | Shape |
 |---|---|---|
 | `settings` | out-of-line key | `tbaKey`, `nexusKey`, `nexusBase`, `eventIndex:<year>` → `{fetchedAt, events[]}` |
-| `events` | `key` | `{key, name, shortName, year, eventType, startDate, endDate, city, stateProv, country, teams[], matches[], nexus:{enabled, map, pits, live, inspection, error}, dayOverride, addedAt, fetchedAt}` |
+| `events` | `key` | `{key, name, shortName, year, eventType, startDate, endDate, city, stateProv, country, teams[], matches[], nexus:{enabled, map, pits, live, inspection, error}, dayOverride, phaseOverride, addedAt, fetchedAt}` |
 | `readiness` | `id = "<eventKey>:<team>"` | `{eventKey, team, radio, inspection, field, ignored, notes, updatedAt}` |
 | `tickets` | `id` (uuid); indexes `eventKey`, `team` | `{eventKey, eventName, team:number, title, description, status, priority, tags[], lastMatch, resolution, links[], createdAt, updatedAt, resolvedAt}` |
 | `media` | `id = "<team>:<year>"` | TBA `{photos[] (direct URLs), avatar (data URL), fetchedAt}`, cached for 12 hours |
@@ -143,6 +143,7 @@ Details of the `tickets` store:
 - **Links are two-way.** `TicketPage.save()` updates the other side of every link it adds or removes. `remove()` also cleans up the other side.
 - `eventName` is stored on the ticket itself, so history still reads correctly after its event is removed.
 - Tags are grouped into categories in `TAG_CATEGORIES` (Electrical, Software, Mechanical, Meta) purely for the picker UI; `PRESET_TAGS` is flattened from it. `Follow-up` is the Meta-category tag used by the "Flag for follow-up" flow.
+- **`seq`** is a per-team incremental ticket number, assigned once at creation via `nextTicketSeq()` (max existing `seq` for that team, across all events, plus one) and never changed after. `ticketNumber(ticket)` formats it as `"<team>-<seq>"` (e.g. `1005-1`), shown in `TicketRow` and the ticket page's title. Older tickets without a `seq` display `"<team>-?"`.
 
 Changing the schema requires bumping the version in `openDB` and adding an upgrade step.
 
@@ -180,7 +181,7 @@ Changing the schema requires bumping the version in `openDB` and adding an upgra
   - Each item has `position` (the **center**) and `size`.
   - An item may also have `angle` (degrees) and, for pits, `team`.
   - `PitMap.jsx` draws each rectangle at `x - w/2, y - h/2` and rotates it about its center.
-  - If a pit item has no `team` (or the event's map data doesn't populate it), `PitMap.jsx` falls back to a reverse lookup from the `/pits` endpoint's team→address map, normalizing address casing/whitespace since the two endpoints aren't guaranteed to format them identically. If a pit still shows only its address, the most likely cause is Nexus not having pit assignments published yet for that event, not a bug — check the Nexus website itself.
+  - If a pit item has no `team` (or the event's map data doesn't populate it), `PitMap.jsx` falls back to a reverse lookup from the `/pits` endpoint's team→address map, normalizing address casing/whitespace since the two endpoints aren't guaranteed to format them identically. This is verified correct against Nexus's official OpenAPI schema (`team` is a nullable string on each pit item; `/pits` is `{teamNumber: address}`). If every pit still shows only its address, `PitMap.jsx` shows an explicit notice — the most likely cause is Nexus not having pit-to-team assignments published yet for that event (the map layout and the assignments are separate steps on Nexus's side), not a client bug. Refresh the event after assignments are made.
 - **Label mapping in `logic.js`:**
   - `Qualification N` → `{key}_qm{N}`
   - `Playoff N` → `{key}_sf{N}m1`
@@ -202,10 +203,23 @@ Changing the schema requires bumping the version in `openDB` and adding an upgra
 4. If `dayOverride` is set, it wins.
 5. The phase is `before`, `during` or `after`, and `dayCaption()` builds the display text.
 
-**Team color.** `teamColor({readiness, openTickets, day})`:
+This is calendar-only and only feeds the "Day X of Y" caption in the event page's top bar —
+it no longer decides which Priority list view shows (see **Competition phase** below).
+
+**Competition phase.** `competitionPhase(event, now)` decides Practice vs. Event using the TBA
+schedule, not the calendar day, so a rain delay or an early start doesn't fool it:
+
+1. If any qualification match (`compLevel === 'qm'`) is marked `played`, the phase is `event`.
+2. Otherwise, if the first qualification match's scheduled time has passed, the phase is `event`.
+3. Otherwise (including when there's no schedule posted yet), the phase is `practice`.
+4. `event.phaseOverride` (`'practice'` | `'event'` | `null`), set from the Priority list tab's
+   Phase dropdown, wins over all of that. The dropdown's "Auto (...)" option still shows what
+   auto-detection currently thinks, even while overridden.
+
+**Team color.** `teamColor({readiness, openTickets, phase})`:
 
 - A team marked `readiness.ignored` is always `ignored` (black), overriding everything else.
-- Otherwise, from day 2 on, any unresolved ticket gives `watch` (yellow).
+- Otherwise, once the phase is `event`, any unresolved ticket gives `watch` (yellow).
 - Otherwise the color depends on how many readiness items are done:
   - 3 → `ready`
   - 0 → `none`
@@ -216,7 +230,7 @@ Changing the schema requires bumping the version in `openDB` and adding an upgra
 
 - If a Nexus map with pits exists, the tab order is Pit map, Priority list, Teams, Tickets, Reference.
 - If not, it is Teams, Priority list, Tickets, Pit map, Reference. The Pit map tab then shows the N/A graphic along with the reason.
-- The Priority list tab's title and heading are constant ("Priority list") regardless of day or event type; only the content underneath changes between the day-1 readiness view and the day 2–3 match-priority view. It has its own sort control (team number, priority, or unresolved-ticket count, each ascending/descending) that only re-sorts on an explicit re-sort action (button or pull-to-refresh gesture) — not automatically as readiness/tickets change, so rows don't jump while you're working through the list.
+- The Priority list tab's title and heading are constant ("Priority list") regardless of phase or event type; only the content underneath changes between the practice-phase readiness view and the event-phase match-priority view. It has its own sort control (team number, priority, or unresolved-ticket count, each ascending/descending) that only re-sorts on an explicit re-sort action (button or pull-to-refresh gesture) — not automatically as readiness/tickets change, so rows don't jump while you're working through the list.
 - Reference is static, offline content (`lib/ledCodes.js` + `components/LedReference.jsx`) — a searchable lookup of CTRE/REV status-LED blink codes, each with a small animated color swatch (`.led-dot` / `.led-blink` / `.led-alt` in `styles.css`) approximating solid/blinking/alternating patterns. It doesn't read the event at all, so it renders the same regardless of which event is open.
 - The pit map's "find a team" box and the ticket form's Team field are both typeahead comboboxes (`.combo-wrap`/`.combo-list` in `styles.css`) that filter the event's roster as you type a team number, rather than a plain `<select>`.
 - The ticket form's "Last match played" is a dropdown listing the team's whole schedule (not filtered to already-played matches — TBA can lag a few minutes behind a live match), plus "N/A" and an "Other / practice match…" option that reveals a free-text field.

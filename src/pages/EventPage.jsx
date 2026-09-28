@@ -4,15 +4,16 @@ import PitMap from '../components/PitMap.jsx';
 import { Icon, Legend, Loading, ReadinessMarks, TeamBox, TicketRow, TopBar } from '../components/ui.jsx';
 import { db, useLive } from '../lib/db.js';
 import {
+  PHASE_LABELS,
   PRIORITY_WEIGHT,
   READINESS_ITEMS,
-  dayCaption,
-  eventDay,
+  competitionPhase,
   formatClock,
   matchLabel,
   matchTimeMs,
   nexusTimesByMatchKey,
   nextMatch,
+  phaseCaption,
   readinessCount,
   sortTickets,
   teamColor,
@@ -38,10 +39,10 @@ export function useEventContext(eventKey) {
     for (const t of tickets) {
       if (t.status === 'unresolved') (openByTeam[t.team] ??= []).push(t);
     }
-    const dayInfo = eventDay(event);
+    const phaseInfo = competitionPhase(event);
     const colorFor = (team) =>
-      teamColor({ readiness: readiness[team], openTickets: openByTeam[team]?.length ?? 0, day: dayInfo.day });
-    return { event, readiness, tickets, openByTeam, dayInfo, colorFor };
+      teamColor({ readiness: readiness[team], openTickets: openByTeam[team]?.length ?? 0, phase: phaseInfo.phase });
+    return { event, readiness, tickets, openByTeam, phaseInfo, colorFor };
   }, [event, readinessList, tickets]);
 }
 
@@ -76,7 +77,7 @@ export default function EventPage({ eventKey, tab }) {
     );
   }
 
-  const { event, dayInfo } = ctx;
+  const { event, phaseInfo } = ctx;
   const hasMap = !!event.nexus?.map?.pits && Object.keys(event.nexus.map.pits).length > 0;
   const tabs = hasMap
     ? [['map', 'Pit map'], ['today', 'Priority list'], ['teams', 'Teams'], ['tickets', 'Tickets'], ['ref', 'Reference']]
@@ -114,7 +115,7 @@ export default function EventPage({ eventKey, tab }) {
     <>
       <TopBar
         title={event.shortName}
-        subtitle={`${dayCaption(dayInfo)} · ${event.key}`}
+        subtitle={`${phaseCaption(phaseInfo)} · ${event.key}`}
         back={() => nav('/')}
         actions={
           <>
@@ -169,7 +170,7 @@ export default function EventPage({ eventKey, tab }) {
 // ---------------- Pit map ----------------
 
 function MapTab({ ctx, hasMap, onRetry, syncing }) {
-  const { event, colorFor, dayInfo } = ctx;
+  const { event, colorFor, phaseInfo } = ctx;
   const [find, setFind] = useState('');
   const [findOpen, setFindOpen] = useState(false);
   const highlight = Number(find) || null;
@@ -239,35 +240,34 @@ function MapTab({ ctx, hasMap, onRetry, syncing }) {
       </div>
       <PitMap map={event.nexus.map} colorFor={colorFor} highlight={highlight}
         teamAddresses={event.nexus?.pits} onSelect={(team) => nav(`/event/${event.key}/team/${team}`)} />
-      <Legend day={dayInfo.day} />
+      <Legend phase={phaseInfo.phase} />
     </>
   );
 }
 
-// ---------------- Daily priorities ----------------
+// ---------------- Priority list ----------------
 
-function DaySwitch({ event, dayInfo }) {
+function PhaseSwitch({ event, phaseInfo }) {
   async function set(v) {
-    await db.put('events', { ...event, dayOverride: v ? Number(v) : null });
+    await db.put('events', { ...event, phaseOverride: v || null });
   }
   return (
     <label className="inline small muted">
-      Day
+      Phase
       <select className="input" style={{ width: 'auto', minHeight: 36, padding: '4px 8px' }}
-        value={event.dayOverride ?? ''} onChange={(e) => set(e.target.value)}>
-        <option value="">Auto ({dayInfo.overridden ? 'from dates' : dayInfo.day})</option>
-        {Array.from({ length: dayInfo.len }, (_, i) => (
-          <option key={i} value={i + 1}>Day {i + 1}</option>
-        ))}
+        value={event.phaseOverride ?? ''} onChange={(e) => set(e.target.value)}>
+        <option value="">Auto ({PHASE_LABELS[phaseInfo.auto]})</option>
+        <option value="practice">{PHASE_LABELS.practice}</option>
+        <option value="event">{PHASE_LABELS.event}</option>
       </select>
     </label>
   );
 }
 
 function PrioritiesTab({ ctx }) {
-  const { event, dayInfo } = ctx;
+  const { event, phaseInfo } = ctx;
   const [sortBy, setSortBy] = useState('priority');
-  const [sortDir, setSortDir] = useState(dayInfo.day === 1 ? 'asc' : 'desc');
+  const [sortDir, setSortDir] = useState(phaseInfo.phase === 'practice' ? 'asc' : 'desc');
   // Bumped only by an explicit re-sort (button or pull-down), never by editing a team's
   // readiness/tickets, so the list doesn't jump around while you're checking things off.
   const [resortToken, setResortToken] = useState(0);
@@ -279,11 +279,11 @@ function PrioritiesTab({ ctx }) {
     <>
       <div className="section-head">
         <h2>Priority list</h2>
-        <DaySwitch event={event} dayInfo={dayInfo} />
+        <PhaseSwitch event={event} phaseInfo={phaseInfo} />
       </div>
       <SortBar sortBy={sortBy} setSortBy={setSortBy} sortDir={sortDir} setSortDir={setSortDir} onResort={resort} />
       <PullToResort onResort={resort}>
-        {dayInfo.day === 1
+        {phaseInfo.phase === 'practice'
           ? <ReadinessPriorities ctx={ctx} sortBy={sortBy} sortDir={sortDir} resortToken={resortToken} />
           : <MatchPriorities ctx={ctx} sortBy={sortBy} sortDir={sortDir} resortToken={resortToken} />}
       </PullToResort>
@@ -539,7 +539,7 @@ function MatchPriorities({ ctx, sortBy, sortDir, resortToken }) {
         </div>
         <ul className="row-list sheet">{rest.map((r) => <Row key={r.t.number} r={r} />)}</ul>
       </section>
-      <Legend day={2} />
+      <Legend phase="event" />
     </>
   );
 }
@@ -547,7 +547,7 @@ function MatchPriorities({ ctx, sortBy, sortDir, resortToken }) {
 // ---------------- Teams ----------------
 
 function TeamsTab({ ctx }) {
-  const { event, readiness, openByTeam, colorFor, dayInfo } = ctx;
+  const { event, readiness, openByTeam, colorFor, phaseInfo } = ctx;
   const [q, setQ] = useState('');
   const pits = event.nexus?.pits ?? {};
   const list = event.teams.filter((t) => {
@@ -591,7 +591,7 @@ function TeamsTab({ ctx }) {
           </li>
         ))}
       </ul>
-      <Legend day={dayInfo.day} />
+      <Legend phase={phaseInfo.phase} />
     </>
   );
 }

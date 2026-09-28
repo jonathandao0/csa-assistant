@@ -59,9 +59,19 @@ export default function PitMap({ map, colorFor, onSelect, highlight, teamAddress
     }
     return out;
   }, [teamAddresses]);
+  const noAssignmentsYet = pits.length > 0 && !pits.some(
+    ([address, pit]) => pit.team || teamByAddress[String(address).trim().toUpperCase()],
+  );
 
   return (
     <div>
+      {noAssignmentsYet && (
+        <div className="notice" style={{ marginBottom: 10 }}>
+          This map has {pits.length} pit location{pits.length === 1 ? '' : 's'} laid out, but Nexus hasn't
+          assigned any teams to pits yet for this event. Numbers will appear here once that's done — refresh
+          the event after it is.
+        </div>
+      )}
       <div className="map-tools">
         <button className="btn" aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(1, z / 1.4))}>−</button>
         <button className="btn" aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(5, z * 1.4))}>+</button>

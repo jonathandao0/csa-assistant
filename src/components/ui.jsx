@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { PRIORITIES, READINESS_ITEMS, TEAM_COLORS, TICKET_STATUS, formatDateTime } from '../lib/logic.js';
+import { PRIORITIES, READINESS_ITEMS, TEAM_COLORS, TICKET_STATUS, formatDateTime, ticketNumber } from '../lib/logic.js';
 import { nav } from '../lib/router.js';
 
 const paths = {
@@ -88,7 +88,7 @@ export function TicketRow({ ticket, showTeam = true, showEvent = false }) {
         <div className="row-main">
           <div className="row-title">{ticket.title}</div>
           <div className="row-sub">
-            {showEvent ? `${ticket.eventName || ticket.eventKey} · ` : ''}
+            {ticketNumber(ticket)} · {showEvent ? `${ticket.eventName || ticket.eventKey} · ` : ''}
             {formatDateTime(ticket.createdAt)}
             {ticket.lastMatch ? ` · after ${ticket.lastMatch}` : ''}
             {ticket.links?.length ? ` · ${ticket.links.length} linked` : ''}
@@ -110,8 +110,8 @@ export function TicketRow({ ticket, showTeam = true, showEvent = false }) {
   );
 }
 
-export function Legend({ day }) {
-  const keys = day >= 2
+export function Legend({ phase }) {
+  const keys = phase === 'event'
     ? ['ready', 'partial', 'none', 'watch', 'ignored']
     : ['ready', 'partial', 'none', 'ignored'];
   return (

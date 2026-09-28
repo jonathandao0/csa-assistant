@@ -63,6 +63,35 @@ export function dayCaption(info) {
   return `Day ${info.day} of ${info.len}`;
 }
 
+/** Whether the event is still in "practice" (no qualification matches played, and the
+ *  first one hasn't started yet by schedule) or has moved into "event" (quals underway or
+ *  done). Driven by the TBA schedule rather than the calendar day, so a rain delay or an
+ *  early start doesn't fool it. `event.phaseOverride` ('practice' | 'event') wins if set. */
+export function competitionPhase(event, now = new Date()) {
+  const quals = event.matches.filter((m) => m.compLevel === 'qm');
+  const first = quals[0];
+  let auto;
+  if (quals.some((m) => m.played)) {
+    auto = 'event';
+  } else if (first) {
+    const startMs = (first.time ?? first.predictedTime ?? 0) * 1000;
+    auto = startMs && now.getTime() >= startMs ? 'event' : 'practice';
+  } else {
+    auto = 'practice';
+  }
+  const phase = event.phaseOverride ?? auto;
+  return { phase, auto, overridden: !!event.phaseOverride };
+}
+
+/** Display names for the two phases — the internal values ('practice' / 'event') stay as
+ *  they are so existing `phaseOverride` data keeps working; only the on-screen wording changed. */
+export const PHASE_LABELS = { practice: 'Load-In/Practice', event: 'Quals/Playoffs' };
+
+export function phaseCaption(info) {
+  const label = PHASE_LABELS[info.phase] ?? info.phase;
+  return info.overridden ? `${label} (set manually)` : label;
+}
+
 // ---------- Readiness / color ----------
 
 export function readinessCount(r) {
@@ -70,11 +99,12 @@ export function readinessCount(r) {
   return READINESS_ITEMS.filter(([k]) => r[k]).length;
 }
 
-/** Day 1 colors by readiness only. Days 2–3: an unresolved ticket turns the team yellow.
- *  A team marked ignored (didn't show up) is always black, overriding everything else. */
-export function teamColor({ readiness, openTickets, day }) {
+/** During practice, colors reflect readiness only. Once the event phase starts, an
+ *  unresolved ticket turns the team yellow. A team marked ignored (didn't show up) is
+ *  always black, overriding everything else. */
+export function teamColor({ readiness, openTickets, phase }) {
   if (readiness?.ignored) return 'ignored';
-  if (day >= 2 && openTickets > 0) return 'watch';
+  if (phase === 'event' && openTickets > 0) return 'watch';
   const c = readinessCount(readiness);
   if (c === 3) return 'ready';
   if (c === 0) return 'none';
@@ -200,12 +230,27 @@ export function sortTickets(tickets) {
   );
 }
 
+/** A short, human-friendly identifier like "1005-1" — the team number plus this team's
+ *  Nth ticket ever (assigned once at creation, stable across events). Falls back to "?"
+ *  for any ticket created before this field existed. */
+export function ticketNumber(ticket) {
+  return `${ticket.team}-${ticket.seq ?? '?'}`;
+}
+
+/** The next sequence number for a team's tickets, given every ticket already on file. */
+export function nextTicketSeq(allTickets, team) {
+  return allTickets
+    .filter((t) => t.team === team)
+    .reduce((max, t) => Math.max(max, t.seq ?? 0), 0) + 1;
+}
+
 const priorityLabel = Object.fromEntries(PRIORITIES);
 
 /** Plain-text rendering of a ticket, for copying to the clipboard to paste elsewhere. */
 export function ticketToText(ticket) {
   const lines = [
-    `Team ${ticket.team} — ${ticket.title}`,
+    `Ticket ${ticketNumber(ticket)} — ${ticket.title}`,
+    `Team: ${ticket.team}`,
     `Event: ${ticket.eventName || ticket.eventKey}`,
     `Status: ${TICKET_STATUS[ticket.status]?.label ?? ticket.status}    Priority: ${priorityLabel[ticket.priority] ?? ticket.priority}`,
     `Last match: ${ticket.lastMatch || 'N/A'}`,

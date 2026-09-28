@@ -100,8 +100,9 @@ function buildReadiness(key, teams) {
 }
 
 /** Builds one event's ticket set. `linked` optionally injects one ticket that links to a
- *  ticket at the other demo event, to show a continuing issue spanning events. */
-function buildTickets(key, eventName, teams, linked) {
+ *  ticket at the other demo event, to show a continuing issue spanning events. `seq` is this
+ *  event's position in each affected team's ticket history (1 = the older/District event). */
+function buildTickets(key, eventName, teams, linked, seq) {
   const samples = [
     { id: `${key}-t0`, team: teams[2].number, title: 'Robot browns out mid-match', tags: ['Brownout / power', 'Battery'], priority: 'high', status: 'unresolved' },
     { id: `${key}-t1`, team: teams[8].number, title: 'Intermittent CAN bus errors', tags: ['CAN bus'], priority: 'medium', status: 'resolved' },
@@ -113,6 +114,7 @@ function buildTickets(key, eventName, teams, linked) {
 
   return samples.map((s) => ({
     id: s.id,
+    seq,
     eventKey: key,
     eventName,
     team: s.team,
@@ -130,7 +132,7 @@ function buildTickets(key, eventName, teams, linked) {
   }));
 }
 
-async function buildEvent({ key, name, shortName, startDate, endDate, eventType, teams, dayOffsetSec, linked }) {
+async function buildEvent({ key, name, shortName, startDate, endDate, eventType, teams, dayOffsetSec, linked, ticketSeq }) {
   const matches = buildMatches(key, teams, dayOffsetSec);
   const { map, pitAddressByTeam } = buildPitMap(teams);
 
@@ -163,7 +165,7 @@ async function buildEvent({ key, name, shortName, startDate, endDate, eventType,
 
   await db.put('events', event);
   await Promise.all(buildReadiness(key, teams).map((r) => db.put('readiness', r)));
-  const tickets = buildTickets(key, shortName, teams, linked);
+  const tickets = buildTickets(key, shortName, teams, linked, ticketSeq);
   await Promise.all(tickets.map((t) => db.put('tickets', t)));
   return event;
 }
@@ -188,6 +190,7 @@ export async function seedDevEvent() {
     eventType: 1,
     teams,
     dayOffsetSec: -14 * day,
+    ticketSeq: 1,
     linked: {
       ticket: {
         id: secondLinkId,
@@ -210,6 +213,7 @@ export async function seedDevEvent() {
     eventType: 0,
     teams,
     dayOffsetSec: 0,
+    ticketSeq: 2,
     linked: {
       ticket: {
         id: firstLinkId,

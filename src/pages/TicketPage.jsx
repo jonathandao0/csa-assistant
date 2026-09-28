@@ -9,7 +9,9 @@ import {
   formatDateTime,
   lastPlayedMatch,
   matchLabel,
+  nextTicketSeq,
   teamMatches,
+  ticketNumber,
   ticketToText,
 } from '../lib/logic.js';
 import { goBack, nav } from '../lib/router.js';
@@ -159,6 +161,7 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
     const ticket = {
       ...form,
       id: ticketId,
+      seq: existing?.seq ?? form.seq ?? nextTicketSeq(allTickets, form.team),
       title: form.title.trim(),
       eventName: existing?.eventName ?? event?.shortName ?? eventKey,
       createdAt: existing?.createdAt ?? now,
@@ -208,7 +211,7 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
   return (
     <>
       <TopBar
-        title={isFollowUp ? 'Flag for follow-up' : isNew ? 'New ticket' : `Ticket · ${form.team}`}
+        title={isFollowUp ? 'Flag for follow-up' : isNew ? 'New ticket' : `Ticket ${ticketNumber(form)}`}
         subtitle={isNew ? event?.shortName : `Opened ${formatDateTime(form.createdAt)} · ${form.eventName ?? eventKey}`}
         back={() => goBack(`/event/${eventKey}/tab/tickets`)}
         actions={

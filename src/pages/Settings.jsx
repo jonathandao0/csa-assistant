@@ -3,8 +3,10 @@ import { TopBar } from '../components/ui.jsx';
 import { defaultNexusBase, nexus, tba } from '../lib/api.js';
 import { STORES, db, getSetting, setSetting, useLive } from '../lib/db.js';
 import { seedDevEvent } from '../lib/devSeed.js';
+import { ticketYear } from '../lib/logic.js';
 import { goBack, nav } from '../lib/router.js';
-import { downloadBlob, exportBackup, importBackup, toast } from '../lib/util.js';
+import { THEMES, useTheme } from '../lib/theme.js';
+import { deleteTickets, downloadBlob, exportBackup, importBackup, toast } from '../lib/util.js';
 
 function KeyField({ label, settingKey, hint, test }) {
   const [value, setValue] = useState('');
@@ -41,6 +43,77 @@ function KeyField({ label, settingKey, hint, test }) {
         {status && <span className="small">{status}</span>}
       </div>
     </div>
+  );
+}
+
+/** Per-season ticket counts with a delete button for each, plus a delete-everything option.
+ *  History on team pages is already scoped to one season; this is for actually freeing the
+ *  space or starting clean. */
+function TicketHistory() {
+  const tickets = useLive(() => db.all('tickets'), []);
+  if (!tickets) return null;
+  const byYear = {};
+  for (const t of tickets) (byYear[ticketYear(t)] ??= []).push(t);
+  const years = Object.keys(byYear).sort((a, b) => b - a);
+
+  async function clear(list, what) {
+    if (!confirm(`Delete ${list.length} ticket${list.length === 1 ? '' : 's'} ${what}? This cannot be undone. Export a backup first if you might want them.`)) return;
+    const n = await deleteTickets(list.map((t) => t.id));
+    toast(`Deleted ${n} ticket${n === 1 ? '' : 's'}`);
+  }
+
+  return (
+    <section className="section">
+      <div className="section-head"><h2>Ticket history</h2></div>
+      <div className="sheet sheet-pad stack">
+        <p className="small muted" style={{ margin: 0 }}>
+          Team history only shows tickets from the same season, so old seasons never pile up on a team page.
+          Delete them here if you don't need them at all.
+        </p>
+        {years.length ? (
+          <>
+            <ul className="row-list">
+              {years.map((y) => (
+                <li key={y} className="row" style={{ cursor: 'default', padding: '6px 0' }}>
+                  <div className="row-main">
+                    <div className="row-title">{y} season</div>
+                    <div className="row-sub">{byYear[y].length} ticket{byYear[y].length === 1 ? '' : 's'}</div>
+                  </div>
+                  <button className="btn danger" style={{ minHeight: 36 }} onClick={() => clear(byYear[y], `from ${y}`)}>
+                    Delete {y}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div><button className="btn danger" onClick={() => clear(tickets, 'from every season')}>Delete all tickets</button></div>
+          </>
+        ) : (
+          <p className="muted" style={{ margin: 0 }}>No tickets saved.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function Appearance() {
+  const { pref, setPref } = useTheme();
+  return (
+    <section className="section">
+      <div className="section-head"><h2>Appearance</h2></div>
+      <div className="sheet sheet-pad">
+        <div className="inline" role="radiogroup" aria-label="Theme">
+          {THEMES.map(([k, label]) => (
+            <button key={k} className="chip" role="radio" aria-checked={pref === k} aria-pressed={pref === k}
+              onClick={() => setPref(k)}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="hint" style={{ margin: '8px 0 0' }}>
+          Dark is easier on the eyes in a dim pit; light reads better under bright arena lights.
+        </p>
+      </div>
+    </section>
   );
 }
 
@@ -107,6 +180,8 @@ export default function Settings() {
           />
         </section>
 
+        <Appearance />
+
         <section className="section">
           <div className="section-head"><h2>Nexus connection</h2></div>
           <div className="sheet sheet-pad stack">
@@ -138,6 +213,8 @@ export default function Settings() {
             <div><button className="btn danger" onClick={eraseAll}>Erase all event data</button></div>
           </div>
         </section>
+
+        <TicketHistory />
 
         {import.meta.env.DEV && (
           <section className="section">

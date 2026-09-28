@@ -45,6 +45,20 @@ export async function importBackup(file) {
   }
 }
 
+/** Deletes a set of tickets and strips links to them from any ticket that survives, so
+ *  links stay two-way. Returns how many were deleted. */
+export async function deleteTickets(ids) {
+  const gone = new Set(ids);
+  if (!gone.size) return 0;
+  const all = await db.all('tickets');
+  const touched = all
+    .filter((t) => !gone.has(t.id) && t.links?.some((l) => gone.has(l)))
+    .map((t) => ({ ...t, links: t.links.filter((l) => !gone.has(l)) }));
+  if (touched.length) await db.putMany('tickets', touched);
+  for (const id of gone) await db.del('tickets', id);
+  return gone.size;
+}
+
 export function toast(message) {
   window.dispatchEvent(new CustomEvent('csa-toast', { detail: message }));
 }

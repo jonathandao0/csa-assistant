@@ -1,4 +1,5 @@
-import { Fragment, useState } from 'react';
+import { useState } from 'react';
+import { Icon } from './ui.jsx';
 import { LED_REFERENCE } from '../lib/ledCodes.js';
 
 const COLOR_HEX = {
@@ -53,10 +54,46 @@ function LedSwatch({ swatch }) {
   );
 }
 
+// Online docs worth having one tap away in the pit. These need a signal, unlike the LED
+// tables below.
+const DOC_LINKS = [
+  ['WPILib docs', 'https://docs.wpilib.org/en/stable/', 'Control system, Driver Station, imaging, programming'],
+  ['WPILib status light reference', 'https://docs.wpilib.org/en/stable/docs/hardware/hardware-basics/status-lights-ref.html', 'Every official status-light table in one page'],
+  ['CTRE Phoenix 6 docs', 'https://v6.docs.ctr-electronics.com/en/stable/', 'Talon FX, CANcoder, Pigeon 2, Tuner X'],
+  ['CTRE Phoenix 5 docs', 'https://v5.docs.ctr-electronics.com/en/stable/', 'Talon SRX, Victor SPX, PDP, PCM'],
+  ['REVLib docs', 'https://docs.revrobotics.com/revlib', 'SPARK MAX / SPARK Flex programming'],
+  ['REV hardware docs', 'https://docs.revrobotics.com/', 'SPARK, PDH, Pneumatic Hub, REV Hardware Client'],
+  ['FRC radio docs', 'https://frc-radio.vivid-hosting.net/', 'VH-109 radio setup and status lights'],
+];
+
+function DocLinks() {
+  return (
+    <section className="section">
+      <div className="section-head"><h2>Documentation</h2></div>
+      <ul className="row-list sheet">
+        {DOC_LINKS.map(([label, href, sub]) => (
+          <li key={href}>
+            <a className="row doc-link" href={href} target="_blank" rel="noreferrer">
+              <div className="row-main">
+                <div className="row-title">{label}</div>
+                <div className="row-sub">{sub}</div>
+              </div>
+              <Icon name="external" size={18} />
+            </a>
+          </li>
+        ))}
+      </ul>
+      <p className="hint">Opens in the browser and needs a connection.</p>
+    </section>
+  );
+}
+
 /** Offline lookup for CTRE/REV status-LED blink codes, for diagnosing hardware in the pit
- *  without needing a signal to search for it. */
+ *  without needing a signal to search for it. Each device is a collapsible box; a search
+ *  opens every device that has a match. */
 export default function LedReference() {
   const [q, setQ] = useState('');
+  const [open, setOpen] = useState(() => new Set());
   const query = q.trim().toLowerCase();
 
   const devices = LED_REFERENCE.map((d) => ({
@@ -69,8 +106,25 @@ export default function LedReference() {
   const byBrand = {};
   for (const d of devices) (byBrand[d.brand] ??= []).push(d);
 
+  const toggle = (device) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(device)) next.delete(device);
+      else next.add(device);
+      return next;
+    });
+  const allOpen = !query && LED_REFERENCE.every((d) => open.has(d.device));
+
   return (
     <>
+      <DocLinks />
+      <div className="section-head"><h2>Status lights</h2>
+        {!query && (
+          <button className="chip" onClick={() => setOpen(allOpen ? new Set() : new Set(LED_REFERENCE.map((d) => d.device)))}>
+            {allOpen ? 'Collapse all' : 'Expand all'}
+          </button>
+        )}
+      </div>
       <input className="input" style={{ marginBottom: 12 }}
         placeholder="Search by device, color, or fault (e.g. “orange”)"
         value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search LED reference" />
@@ -79,26 +133,36 @@ export default function LedReference() {
       ) : (
         Object.entries(byBrand).map(([brand, brandDevices]) => (
           <section className="section" key={brand}>
-            <div className="section-head"><h2>{brand}</h2></div>
-            {brandDevices.map((d) => (
-              <div key={d.device} style={{ marginBottom: 14 }}>
-                <div className="small" style={{ fontWeight: 600, marginBottom: 4 }}>{d.device}</div>
-                {d.note && <p className="hint" style={{ margin: '0 0 6px' }}>{d.note}</p>}
-                <div className="sheet sheet-pad">
-                  <dl className="dl led-dl">
-                    {d.rows.map((r, i) => (
-                      <Fragment key={i}>
-                        <dt style={{ color: 'var(--ink)', fontWeight: 600 }}>
-                          <LedSwatch swatch={r.swatch} />
-                          {r.pattern}
-                        </dt>
-                        <dd>{r.meaning}</dd>
-                      </Fragment>
-                    ))}
-                  </dl>
+            <h3 className="brand-head">{brand}</h3>
+            {brandDevices.map((d) => {
+              const isOpen = !!query || open.has(d.device);
+              return (
+                <div key={d.device} className="led-device sheet">
+                  <button className="led-device-head" aria-expanded={isOpen} onClick={() => toggle(d.device)}
+                    disabled={!!query}>
+                    <span style={{ flex: 1 }}>{d.device}</span>
+                    <span className="small muted">{d.rows.length}</span>
+                    <span className="led-chevron"><Icon name="chevron" size={18} /></span>
+                  </button>
+                  {isOpen && (
+                    <div className="led-device-body">
+                      {d.note && <p className="hint" style={{ margin: '0 0 6px' }}>{d.note}</p>}
+                      <ul className="led-rows">
+                        {d.rows.map((r, i) => (
+                          <li key={i}>
+                            <div className="led-pattern">
+                              <LedSwatch swatch={r.swatch} />
+                              {r.pattern}
+                            </div>
+                            <div className="led-meaning">{r.meaning}</div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </section>
         ))
       )}

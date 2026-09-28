@@ -15,10 +15,11 @@ import {
   tagCounts,
   teamMatches,
   ticketChains,
+  ticketYear,
 } from '../lib/logic.js';
 import { goBack, nav } from '../lib/router.js';
 import { fetchTeamMedia } from '../lib/sync.js';
-import { compressImage, toast } from '../lib/util.js';
+import { compressImage, deleteTickets, toast } from '../lib/util.js';
 import { setIgnored, toggleReadiness, useEventContext } from './EventPage.jsx';
 
 export default function TeamPage({ eventKey, number }) {
@@ -33,8 +34,10 @@ export default function TeamPage({ eventKey, number }) {
   const { event, readiness, colorFor } = ctx;
   const team = event.teams.find((t) => t.number === number) ?? { number, nickname: `Team ${number}` };
   const r = readiness[number];
-  const here = sortTickets(allTeamTickets.filter((t) => t.eventKey === eventKey));
-  const elsewhere = allTeamTickets.filter((t) => t.eventKey !== eventKey);
+  // History only covers this season — last year's robot is a different robot.
+  const seasonTickets = allTeamTickets.filter((t) => ticketYear(t) === event.year);
+  const here = sortTickets(seasonTickets.filter((t) => t.eventKey === eventKey));
+  const elsewhere = seasonTickets.filter((t) => t.eventKey !== eventKey);
   const pit = event.nexus?.pits?.[number];
   const inspection = event.nexus?.inspection?.[number];
 
@@ -109,10 +112,10 @@ export default function TeamPage({ eventKey, number }) {
           {here.length > 6 && <p className="hint">Showing 6 of {here.length}. See the Tickets tab for all.</p>}
         </section>
 
-        <IssuesOverTime teamTickets={allTeamTickets} />
+        <IssuesOverTime teamTickets={seasonTickets} />
 
-        <HistorySection number={number} teamTickets={allTeamTickets} elsewhere={elsewhere}
-          allTickets={allTickets} events={events} />
+        <HistorySection number={number} year={event.year} teamTickets={seasonTickets} elsewhere={elsewhere}
+          allTickets={allTickets.filter((t) => ticketYear(t) === event.year)} events={events} />
 
         <section className="section">
           <div className="section-head"><h2>Team details</h2></div>
@@ -283,8 +286,8 @@ function IssuesOverTime({ teamTickets }) {
   );
 }
 
-/** Short summary of this team's issues from other events plus linked issue chains. */
-function HistorySection({ teamTickets, elsewhere, allTickets, events }) {
+/** Short summary of this team's issues from other events this season plus linked issue chains. */
+function HistorySection({ number, year, teamTickets, elsewhere, allTickets, events }) {
   const byId = Object.fromEntries(allTickets.map((t) => [t.id, t]));
   const chains = ticketChains(teamTickets, byId).filter((c) => c.length > 1);
   const eventName = Object.fromEntries(events.map((e) => [e.key, e.shortName]));
@@ -296,14 +299,26 @@ function HistorySection({ teamTickets, elsewhere, allTickets, events }) {
     return (
       <section className="section">
         <div className="section-head"><h2>History</h2></div>
-        <p className="muted">No issues logged for this team at other events.</p>
+        <p className="muted">No issues logged for this team at other {year} events.</p>
       </section>
     );
   }
 
+  async function clearHistory() {
+    if (!elsewhere.length) return;
+    if (!confirm(`Delete team ${number}'s ${elsewhere.length} ticket${elsewhere.length === 1 ? '' : 's'} from other ${year} events? Tickets at this event are kept. This cannot be undone.`)) return;
+    await deleteTickets(elsewhere.map((t) => t.id));
+    toast('History cleared');
+  }
+
   return (
     <section className="section">
-      <div className="section-head"><h2>History</h2></div>
+      <div className="section-head">
+        <h2>History</h2>
+        {elsewhere.length > 0 && (
+          <button className="chip" onClick={clearHistory}>Clear history</button>
+        )}
+      </div>
       {chains.length > 0 && (
         <div className="sheet sheet-pad stack" style={{ marginBottom: 12 }}>
           <strong>Continuing issues</strong>
@@ -348,13 +363,17 @@ function HistorySection({ teamTickets, elsewhere, allTickets, events }) {
   );
 }
 
+/** Robot photo thumbnail plus a swipeable viewer. Your own photo (if any) comes first, then
+ *  TBA's. A photo that fails to load is dropped from the set by URL rather than by shifting
+ *  an index, so a broken link can't send the viewer round in circles. */
 function RobotThumb({ number, year }) {
   const mine = useLive(() => db.get('photos', String(number)), [number]);
   const [tbaMedia, setTbaMedia] = useState(null);
+  const [failed, setFailed] = useState(() => new Set());
   const [idx, setIdx] = useState(0);
-  const [failed, setFailed] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const fileRef = useRef(null);
+  const swipe = useRef(null);
 
   useEffect(() => {
     let alive = true;
@@ -365,6 +384,55 @@ function RobotThumb({ number, year }) {
     };
   }, [number, year]);
 
+  // Probe every TBA photo up front so dead links drop out before you page to them and the
+  // count on the thumbnail is right.
+  useEffect(() => {
+    let alive = true;
+    for (const src of tbaMedia?.photos ?? []) {
+      const img = new Image();
+      img.onerror = () => alive && setFailed((f) => new Set(f).add(src));
+      img.src = src;
+    }
+    return () => {
+      alive = false;
+    };
+  }, [tbaMedia]);
+
+  const photos = [
+    ...(mine?.dataUrl ? [{ src: mine.dataUrl, mine: true }] : []),
+    ...(tbaMedia?.photos ?? []).map((src) => ({ src, mine: false })),
+  ].filter((p) => !failed.has(p.src));
+  const count = photos.length;
+  const cur = count ? Math.min(idx, count - 1) : 0;
+  const photo = photos[cur];
+
+  const markFailed = (src) => setFailed((f) => new Set(f).add(src));
+  const step = (d) => count > 1 && setIdx((cur + d + count) % count);
+
+  useEffect(() => {
+    if (!expanded) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'ArrowLeft') step(-1);
+      if (e.key === 'ArrowRight') step(1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  function onTouchStart(e) {
+    const t = e.touches[0];
+    swipe.current = { x: t.clientX, y: t.clientY };
+  }
+  function onTouchEnd(e) {
+    const start = swipe.current;
+    swipe.current = null;
+    if (!start) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) step(dx < 0 ? 1 : -1);
+  }
+
   async function onFile(e) {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -372,21 +440,18 @@ function RobotThumb({ number, year }) {
     try {
       const dataUrl = await compressImage(file);
       await db.put('photos', { id: String(number), year, dataUrl, updatedAt: Date.now() });
+      setIdx(0);
       toast('Robot photo saved');
     } catch (err) {
       toast(err.message);
     }
   }
 
-  const tbaPhotos = tbaMedia?.photos ?? [];
-  const src = mine?.dataUrl ?? (!failed ? tbaPhotos[idx] : null);
-
   return (
     <>
-      <button className="robot-thumb" onClick={() => setExpanded(true)} aria-label="View robot photo">
-        {src ? (
-          <img src={src} alt={`Team ${number} robot`}
-            onError={() => (idx + 1 < tbaPhotos.length ? setIdx(idx + 1) : setFailed(true))} />
+      <button className="robot-thumb" onClick={() => setExpanded(true)} aria-label="View robot photos">
+        {photos[0] ? (
+          <img src={photos[0].src} alt={`Team ${number} robot`} onError={() => markFailed(photos[0].src)} />
         ) : (
           <span className="robot-thumb-empty">
             {tbaMedia?.avatar ? (
@@ -396,13 +461,29 @@ function RobotThumb({ number, year }) {
             )}
           </span>
         )}
+        {count > 1 && <span className="robot-thumb-count">{count}</span>}
       </button>
       <input ref={fileRef} type="file" accept="image/*" hidden onChange={onFile} />
       {expanded && (
         <Modal title={`Team ${number} robot photo`} onClose={() => setExpanded(false)}>
-          {src ? (
-            <img className="robot-photo" src={src} alt={`Team ${number} robot`}
-              onError={() => (idx + 1 < tbaPhotos.length ? setIdx(idx + 1) : setFailed(true))} />
+          {photo ? (
+            <div className="photo-viewer" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+              <img key={photo.src} className="robot-photo" src={photo.src} alt={`Team ${number} robot`}
+                draggable="false" onError={() => markFailed(photo.src)} />
+              {count > 1 && (
+                <>
+                  <button className="photo-nav prev" aria-label="Previous photo" onClick={() => step(-1)}>
+                    <Icon name="back" />
+                  </button>
+                  <button className="photo-nav next" aria-label="Next photo" onClick={() => step(1)}>
+                    <Icon name="forward" />
+                  </button>
+                  <div className="photo-dots" aria-hidden="true">
+                    {photos.map((p, i) => <i key={p.src} className={i === cur ? 'on' : ''} />)}
+                  </div>
+                </>
+              )}
+            </div>
           ) : (
             <div className="photo-empty">
               <p style={{ margin: 0 }}>No robot photo on TBA for {year}. Take one in the pit.</p>
@@ -410,15 +491,13 @@ function RobotThumb({ number, year }) {
           )}
           <div className="inline sheet-pad" style={{ justifyContent: 'space-between' }}>
             <span className="small muted">
-              {mine ? 'Your photo' : src ? 'Photo from TBA' : ''}
-              {!mine && tbaPhotos.length > 1 ? ` (${idx + 1} of ${tbaPhotos.length})` : ''}
+              {photo ? (photo.mine ? 'Your photo' : 'Photo from TBA') : ''}
+              {count > 1 ? ` · ${cur + 1} of ${count} · swipe for more` : ''}
             </span>
             <span className="inline">
-              {!mine && tbaPhotos.length > 1 && (
-                <button className="btn" style={{ minHeight: 36 }} onClick={() => setIdx((idx + 1) % tbaPhotos.length)}>Next</button>
-              )}
               {mine && (
-                <button className="btn danger" style={{ minHeight: 36 }} onClick={() => db.del('photos', String(number))}>Remove mine</button>
+                <button className="btn danger" style={{ minHeight: 36 }}
+                  onClick={() => db.del('photos', String(number)).then(() => setIdx(0))}>Remove mine</button>
               )}
               <button className="btn" style={{ minHeight: 36 }} onClick={() => fileRef.current?.click()}>
                 <Icon name="camera" size={18} /> {mine ? 'Retake' : 'Add photo'}

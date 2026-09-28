@@ -17,6 +17,7 @@ import {
   readinessCount,
   sortTickets,
   teamColor,
+  ticketYear,
 } from '../lib/logic.js';
 import { nav } from '../lib/router.js';
 import { syncEvent } from '../lib/sync.js';
@@ -100,7 +101,7 @@ export default function EventPage({ eventKey, tab }) {
     setExporting(true);
     try {
       const { buildEventReport } = await import('../lib/report.js');
-      const all = await db.all('tickets');
+      const all = (await db.all('tickets')).filter((t) => ticketYear(t) === event.year);
       const blob = await buildEventReport(event, ctx.tickets, all);
       downloadBlob(blob, `CSA report ${event.key}.docx`);
       toast('Report downloaded');
@@ -118,15 +119,10 @@ export default function EventPage({ eventKey, tab }) {
         subtitle={`${phaseCaption(phaseInfo)} · ${event.key}`}
         back={() => nav('/')}
         actions={
-          <>
-            <button className={`icon-btn${syncing ? ' spin' : ''}`} aria-label="Refresh event data"
-              onClick={refresh} disabled={syncing}>
-              <Icon name="refresh" />
-            </button>
-            <button className="icon-btn" aria-label="Export Word report" onClick={exportReport} disabled={exporting}>
-              <Icon name="report" />
-            </button>
-          </>
+          <button className={`icon-btn${syncing ? ' spin' : ''}`} aria-label="Refresh event data"
+            onClick={refresh} disabled={syncing}>
+            <Icon name="refresh" />
+          </button>
         }
       >
         <nav className="tabs" role="tablist">

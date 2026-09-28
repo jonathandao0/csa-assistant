@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Icon, TopBar } from '../components/ui.jsx';
 import { db, getSetting, useLive } from '../lib/db.js';
-import { DEMO_MODE, ensureDemoSeeded } from '../lib/demoMode.js';
+import { DEMO_MODE, canPromptInstall, ensureDemoSeeded, promptInstall, removeDemoDataIfInstalled } from '../lib/demoMode.js';
 import { seedDevEvent } from '../lib/devSeed.js';
 import { dayCaption, eventDay, formatDateRange } from '../lib/logic.js';
 import { nav } from '../lib/router.js';
 import { getEventIndex, searchEvents, syncEvent } from '../lib/sync.js';
+import { useTheme } from '../lib/theme.js';
 import { toast } from '../lib/util.js';
 
 const KEY_PATTERN = /^\d{4}[a-z0-9]+$/i;
@@ -20,8 +21,11 @@ export default function Home() {
   const [error, setError] = useState('');
   const [resettingDemo, setResettingDemo] = useState(false);
 
+  const { theme, setPref } = useTheme();
+
   useEffect(() => {
     if (DEMO_MODE) ensureDemoSeeded();
+    else removeDemoDataIfInstalled();
   }, []);
 
   async function resetDemo() {
@@ -77,9 +81,15 @@ export default function Home() {
         title="CSA Assistant"
         subtitle="Control System Advisor companion"
         actions={
-          <button className="icon-btn" aria-label="Settings" onClick={() => nav('/settings')}>
-            <Icon name="settings" />
-          </button>
+          <>
+            <button className="icon-btn" aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              onClick={() => setPref(theme === 'dark' ? 'light' : 'dark')}>
+              <Icon name={theme === 'dark' ? 'sun' : 'moon'} />
+            </button>
+            <button className="icon-btn" aria-label="Settings" onClick={() => nav('/settings')}>
+              <Icon name="settings" />
+            </button>
+          </>
         }
       />
       <main className="page">
@@ -92,6 +102,7 @@ export default function Home() {
                 {resettingDemo ? 'Reloading…' : 'Reload demo data'}
               </button>
             </div>
+            <InstallNote />
           </div>
         ) : hasKey === false && (
           <div className="notice section">
@@ -197,5 +208,38 @@ export default function Home() {
         </section>
       </main>
     </>
+  );
+}
+
+/** How to install the page as an app. Shown only in the browser-tab demo, since the
+ *  installed app never shows the demo banner at all. */
+function InstallNote() {
+  const [canInstall, setCanInstall] = useState(canPromptInstall);
+  useEffect(() => {
+    const update = () => setCanInstall(canPromptInstall());
+    window.addEventListener('csa-installable', update);
+    return () => window.removeEventListener('csa-installable', update);
+  }, []);
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+
+  return (
+    <div className="install-note">
+      <strong>Use it at an event: install it as an app.</strong>
+      <p style={{ margin: '4px 0 0' }}>
+        {ios
+          ? 'In Safari, tap Share, then Add to Home Screen.'
+          : 'In Chrome, open the ⋮ menu and tap Install app (or Add to Home screen).'}{' '}
+        The installed app works offline in the venue and starts empty, without the demo data. Add your
+        Blue Alliance API key in its Settings to load real events.
+      </p>
+      {canInstall && (
+        <button className="btn primary" style={{ minHeight: 36, marginTop: 8 }}
+          onClick={async () => {
+            if (await promptInstall()) toast('Installing — open CSA Assistant from your home screen');
+          }}>
+          Install app
+        </button>
+      )}
+    </div>
   );
 }

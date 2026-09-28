@@ -230,17 +230,23 @@ export function sortTickets(tickets) {
   );
 }
 
+/** The season a ticket belongs to: event keys start with the year ("2026casd"), with the
+ *  creation date as a fallback. History, linking and numbering are all scoped to one season. */
+export function ticketYear(ticket) {
+  return Number(String(ticket.eventKey ?? '').slice(0, 4)) || new Date(ticket.createdAt).getFullYear();
+}
+
 /** A short, human-friendly identifier like "1005-1" — the team number plus this team's
- *  Nth ticket ever (assigned once at creation, stable across events). Falls back to "?"
- *  for any ticket created before this field existed. */
+ *  Nth ticket of the season (assigned once at creation, stable across events). Falls back
+ *  to "?" for any ticket created before this field existed. */
 export function ticketNumber(ticket) {
   return `${ticket.team}-${ticket.seq ?? '?'}`;
 }
 
-/** The next sequence number for a team's tickets, given every ticket already on file. */
-export function nextTicketSeq(allTickets, team) {
+/** The next sequence number for a team's tickets this season, given every ticket on file. */
+export function nextTicketSeq(allTickets, team, year) {
   return allTickets
-    .filter((t) => t.team === team)
+    .filter((t) => t.team === team && ticketYear(t) === year)
     .reduce((max, t) => Math.max(max, t.seq ?? 0), 0) + 1;
 }
 

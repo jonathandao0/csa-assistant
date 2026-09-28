@@ -10,6 +10,7 @@ import {
   lastPlayedMatch,
   matchLabel,
   nextTicketSeq,
+  ticketYear,
   teamMatches,
   ticketNumber,
   ticketToText,
@@ -161,7 +162,7 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
     const ticket = {
       ...form,
       id: ticketId,
-      seq: existing?.seq ?? form.seq ?? nextTicketSeq(allTickets, form.team),
+      seq: existing?.seq ?? form.seq ?? nextTicketSeq(allTickets, form.team, Number(eventKey.slice(0, 4))),
       title: form.title.trim(),
       eventName: existing?.eventName ?? event?.shortName ?? eventKey,
       createdAt: existing?.createdAt ?? now,
@@ -372,7 +373,7 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
 
       {picking && (
         <LinkPicker
-          tickets={allTickets.filter((t) => t.id !== form.id && !form.links.includes(t.id))}
+          tickets={allTickets.filter((t) => t.id !== form.id && !form.links.includes(t.id) && ticketYear(t) === Number(eventKey.slice(0, 4)))}
           team={form.team}
           onPick={(tid) => {
             set({ links: [...form.links, tid] });
@@ -385,7 +386,7 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
   );
 }
 
-/** Only ever offers this same team's other tickets — a "continuing issue" link only makes
+/** Only ever offers this same team's other tickets from the same season — a "continuing issue" link only makes
  *  sense between tickets for the same team, so cross-team linking isn't offered at all. */
 function LinkPicker({ tickets, team, onPick, onClose }) {
   const [q, setQ] = useState('');
@@ -419,7 +420,7 @@ function LinkPicker({ tickets, team, onPick, onClose }) {
             ))}
           </ul>
         ) : (
-          <p className="muted">No other tickets for team {team} yet.</p>
+          <p className="muted">No other tickets for team {team} this season yet.</p>
         )}
       </div>
     </Modal>

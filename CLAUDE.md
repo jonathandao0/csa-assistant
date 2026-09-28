@@ -140,7 +140,8 @@ Details of the `tickets` store:
 
 - `status` is one of `unresolved`, `resolved` or `declined`. The UI labels them "Unresolved / watch", "Resolved" and "Declined help".
 - `priority` is one of `low`, `medium`, `high` or `critical`. The weights are 1, 2, 3 and 5.
-- **Links are two-way.** `TicketPage.save()` updates the other side of every link it adds or removes. `remove()` also cleans up the other side.
+- **Links are two-way.** `TicketPage.save()` updates the other side of every link it adds or removes. `remove()` also cleans up the other side. The "Link a ticket" picker only ever offers the *same team's* other tickets (across any event) — cross-team linking isn't offered, since a continuing-issue link only makes sense within one team.
+- On the ticket page, "Linked tickets" is shown after the Save button (not before), and "Copy ticket as text" is a full-width button at the very bottom of the page (not a top-bar icon) — both are deliberately placed for visibility rather than tucked above the fold with the edit fields.
 - `eventName` is stored on the ticket itself, so history still reads correctly after its event is removed.
 - Tags are grouped into categories in `TAG_CATEGORIES` (Electrical, Software, Mechanical, Meta) purely for the picker UI; `PRESET_TAGS` is flattened from it. `Follow-up` is the Meta-category tag used by the "Flag for follow-up" flow.
 - **`seq`** is a per-team incremental ticket number, assigned once at creation via `nextTicketSeq()` (max existing `seq` for that team, across all events, plus one) and never changed after. `ticketNumber(ticket)` formats it as `"<team>-<seq>"` (e.g. `1005-1`), shown in `TicketRow` and the ticket page's title. Older tickets without a `seq` display `"<team>-?"`.

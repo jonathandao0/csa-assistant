@@ -215,16 +215,11 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
         subtitle={isNew ? event?.shortName : `Opened ${formatDateTime(form.createdAt)} · ${form.eventName ?? eventKey}`}
         back={() => goBack(`/event/${eventKey}/tab/tickets`)}
         actions={
-          <>
-            <button className="icon-btn" aria-label="Copy ticket as text" onClick={copyTicket}>
-              <Icon name="copy" />
+          !isNew && (
+            <button className="icon-btn" aria-label="Delete ticket" onClick={remove}>
+              <Icon name="trash" />
             </button>
-            {!isNew && (
-              <button className="icon-btn" aria-label="Delete ticket" onClick={remove}>
-                <Icon name="trash" />
-              </button>
-            )}
-          </>
+          )
         }
       />
       <main className="page stack" style={{ gap: 18 }}>
@@ -336,6 +331,10 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
             placeholder="What fixed it, or what to try next time" />
         </label>
 
+        {error && <p className="error">{error}</p>}
+        <button className="btn primary block" onClick={save}>{isNew ? 'Create ticket' : 'Save changes'}</button>
+        {!isNew && <p className="hint">Last updated {formatDateTime(form.updatedAt)}</p>}
+
         <div className="field">
           <span>Linked tickets</span>
           {form.links.length > 0 ? (
@@ -346,7 +345,7 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
                   <li key={l} className="row" style={{ cursor: 'default' }}>
                     <div className="row-main" onClick={() => t && nav(`/event/${t.eventKey}/ticket/${t.id}`)}
                       style={{ cursor: t ? 'pointer' : 'default' }}>
-                      <div className="row-title">{t ? `${t.team} · ${t.title}` : 'Deleted ticket'}</div>
+                      <div className="row-title">{t ? `${ticketNumber(t)} · ${t.title}` : 'Deleted ticket'}</div>
                       {t && <div className="row-sub">{t.eventName || t.eventKey} · {formatDateTime(t.createdAt)}</div>}
                     </div>
                     {t && <StatusPill status={t.status} />}
@@ -360,14 +359,15 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
           ) : (
             <span className="hint">Link earlier tickets for the same problem so the team's history shows a continuing issue.</span>
           )}
-          <button className="btn" onClick={() => setPicking(true)}>
+          <button className="btn" onClick={() => setPicking(true)} disabled={!form.team}>
             <Icon name="link" size={18} /> Link a ticket
           </button>
+          {!form.team && <span className="hint">Choose a team above first.</span>}
         </div>
 
-        {error && <p className="error">{error}</p>}
-        <button className="btn primary block" onClick={save}>{isNew ? 'Create ticket' : 'Save changes'}</button>
-        {!isNew && <p className="hint">Last updated {formatDateTime(form.updatedAt)}</p>}
+        <button className="btn block" onClick={copyTicket}>
+          <Icon name="copy" size={20} /> Copy ticket as text
+        </button>
       </main>
 
       {picking && (
@@ -385,35 +385,30 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
   );
 }
 
+/** Only ever offers this same team's other tickets — a "continuing issue" link only makes
+ *  sense between tickets for the same team, so cross-team linking isn't offered at all. */
 function LinkPicker({ tickets, team, onPick, onClose }) {
   const [q, setQ] = useState('');
-  const [onlyTeam, setOnlyTeam] = useState(!!team);
   const list = tickets
-    .filter((t) => (onlyTeam && team ? t.team === team : true))
+    .filter((t) => t.team === team)
     .filter((t) => {
       if (!q) return true;
       const s = q.toLowerCase();
-      return String(t.team).startsWith(s) || t.title.toLowerCase().includes(s) || t.tags?.some((x) => x.toLowerCase().includes(s));
+      return t.title.toLowerCase().includes(s) || t.tags?.some((x) => x.toLowerCase().includes(s));
     })
-    .sort((a, b) => (b.team === team) - (a.team === team) || b.createdAt - a.createdAt)
+    .sort((a, b) => b.createdAt - a.createdAt)
     .slice(0, 60);
 
   return (
-    <Modal title="Link a ticket" onClose={onClose}>
+    <Modal title={`Link a ticket for team ${team}`} onClose={onClose}>
       <div className="stack">
-        <input className="input" autoFocus placeholder="Search team, title, or tag" value={q} onChange={(e) => setQ(e.target.value)} />
-        {team && (
-          <div className="inline">
-            <button className="chip" aria-pressed={onlyTeam} onClick={() => setOnlyTeam(true)}>Team {team} only</button>
-            <button className="chip" aria-pressed={!onlyTeam} onClick={() => setOnlyTeam(false)}>All teams</button>
-          </div>
-        )}
+        <input className="input" autoFocus placeholder="Search title or tag" value={q} onChange={(e) => setQ(e.target.value)} />
         {list.length ? (
           <ul className="row-list sheet">
             {list.map((t) => (
               <li key={t.id}>
                 <button className="row" onClick={() => onPick(t.id)}>
-                  <span className="num" style={{ fontSize: '1.15rem', minWidth: 48 }}>{t.team}</span>
+                  <span className="num" style={{ fontSize: '1.05rem', minWidth: 56 }}>{ticketNumber(t)}</span>
                   <div className="row-main">
                     <div className="row-title">{t.title}</div>
                     <div className="row-sub">{t.eventName || t.eventKey} · {formatDateTime(t.createdAt)}</div>
@@ -424,7 +419,7 @@ function LinkPicker({ tickets, team, onPick, onClose }) {
             ))}
           </ul>
         ) : (
-          <p className="muted">No other tickets match. Try “All teams”.</p>
+          <p className="muted">No other tickets for team {team} yet.</p>
         )}
       </div>
     </Modal>

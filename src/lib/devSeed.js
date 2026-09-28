@@ -1,4 +1,5 @@
 import { db } from './db.js';
+import { lastPlayedMatch, matchLabel } from './logic.js';
 
 // Builds two fake events sharing a team roster, entirely offline, so the UI — including
 // cross-event team history — can be exercised without TBA/Nexus keys. Only ever surfaced
@@ -102,15 +103,23 @@ function buildReadiness(key, teams) {
 /** Builds one event's ticket set. `linked` optionally injects one ticket that links to a
  *  ticket at the other demo event, to show a continuing issue spanning events. `seq` is this
  *  event's position in each affected team's ticket history (1 = the older/District event). */
-function buildTickets(key, eventName, teams, linked, seq) {
+function buildTickets(key, eventName, teams, matches, linked, seq) {
   const samples = [
     { id: `${key}-t0`, team: teams[2].number, title: 'Robot browns out mid-match', tags: ['Brownout / power', 'Battery'], priority: 'high', status: 'unresolved' },
     { id: `${key}-t1`, team: teams[8].number, title: 'Intermittent CAN bus errors', tags: ['CAN bus'], priority: 'medium', status: 'resolved' },
     { id: `${key}-t2`, team: teams[11].number, title: 'Driver station shows code error', tags: ['Code', 'Driver Station'], priority: 'low', status: 'declined' },
     { id: `${key}-t3`, team: teams[14].number, title: 'Systemcore will not image', tags: ['Systemcore', 'Firmware / imaging'], priority: 'high', status: 'unresolved' },
     { id: `${key}-t4`, team: teams[17].number, title: 'Noticed smoke smell after match, unconfirmed', tags: ['Follow-up'], priority: 'low', status: 'unresolved' },
+    { id: `${key}-t5`, team: teams[20].number, title: 'Intake jams on angled game pieces', tags: ['Mechanical', 'Sensors'], priority: 'medium', status: 'unresolved' },
   ];
   if (linked) samples.push(linked.ticket);
+
+  // Each ticket's "last match" reflects that team's actual schedule, so the ticket form's
+  // match dropdown has real, varied entries to show instead of one hardcoded value.
+  const lastMatchFor = (team) => {
+    const m = lastPlayedMatch({ matches }, team);
+    return m ? matchLabel(m) : '';
+  };
 
   return samples.map((s) => ({
     id: s.id,
@@ -123,7 +132,7 @@ function buildTickets(key, eventName, teams, linked, seq) {
     status: s.status,
     priority: s.priority,
     tags: s.tags,
-    lastMatch: 'Q2',
+    lastMatch: lastMatchFor(s.team),
     resolution: s.status === 'resolved' ? 'Reseated the connector and re-ran the match.' : '',
     links: s.links ?? [],
     createdAt: Date.now() - Math.random() * 5 * 3600_000,
@@ -165,7 +174,7 @@ async function buildEvent({ key, name, shortName, startDate, endDate, eventType,
 
   await db.put('events', event);
   await Promise.all(buildReadiness(key, teams).map((r) => db.put('readiness', r)));
-  const tickets = buildTickets(key, shortName, teams, linked, ticketSeq);
+  const tickets = buildTickets(key, shortName, teams, matches, linked, ticketSeq);
   await Promise.all(tickets.map((t) => db.put('tickets', t)));
   return event;
 }

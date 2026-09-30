@@ -815,10 +815,6 @@ textarea.input {
   text-align: left;
   cursor: pointer;
 }
-.led-device-head:disabled {
-  cursor: default;
-  opacity: 1;
-}
 .led-device-head[aria-expanded='true'] {
   border-bottom: 1px solid var(--line);
 }

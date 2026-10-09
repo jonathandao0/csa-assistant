@@ -22,7 +22,7 @@ import {
 } from '../lib/logic.js';
 import { parseNexusMessage, stashDraft } from '../lib/nexusImport.js';
 import { nav } from '../lib/router.js';
-import { syncEvent } from '../lib/sync.js';
+import { setNexusEventKey, syncEvent } from '../lib/sync.js';
 import { downloadBlob, toast } from '../lib/util.js';
 
 /** Loads everything an event screen needs and derives per-team status. */
@@ -206,7 +206,7 @@ function MapTab({ ctx, hasMap, onRetry, syncing }) {
       ? 'Add your Nexus API key in Settings to load pit maps.'
       : event.nexus?.error
         ? event.nexus.error
-        : 'This event has not published a pit map on FRC Nexus yet.';
+        : `FRC Nexus has no pit map under the event code ${event.nexusEventKey || event.key}. If the map shows on frc.nexus, Nexus may use a different code for this event — set it below.`;
     return (
       <div className="sheet">
         <div className="na-art">
@@ -232,6 +232,7 @@ function MapTab({ ctx, hasMap, onRetry, syncing }) {
             {!event.nexus?.enabled && <a className="btn primary" href="#/settings">Open Settings</a>}
           </div>
         </div>
+        {event.nexus?.enabled && <NexusCodeField event={event} />}
       </div>
     );
   }
@@ -267,7 +268,58 @@ function MapTab({ ctx, hasMap, onRetry, syncing }) {
       <PitMap map={event.nexus.map} colorFor={colorFor} highlight={highlight}
         teamAddresses={event.nexus?.pits} onSelect={(team) => nav(`/event/${event.key}/team/${team}`)} />
       <Legend phase={phaseInfo.phase} />
+      <div className="sheet" style={{ marginTop: 16 }}>
+        <NexusCodeField event={event} />
+      </div>
     </>
+  );
+}
+
+/** Override for when FRC Nexus files this event under a different code than TBA (common
+ *  for offseason events). Used for every Nexus request: pit map, pits, queue, inspection. */
+function NexusCodeField({ event }) {
+  const [value, setValue] = useState(event.nexusEventKey ?? '');
+  const [busy, setBusy] = useState(false);
+  const current = event.nexusEventKey || event.key;
+
+  async function save(code) {
+    setBusy(true);
+    try {
+      const { warnings, nexus: nx } = await setNexusEventKey(event.key, code);
+      setValue(code.trim().toLowerCase() === event.key ? '' : code.trim().toLowerCase());
+      const hasMap = !!nx?.map?.pits && Object.keys(nx.map.pits).length > 0;
+      toast(warnings.length ? warnings.join(' ') : hasMap ? 'Pit map loaded' : `Saved. Nexus has no pit map under ${(code.trim() || event.key).toLowerCase()} yet.`);
+    } catch (e) {
+      toast(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="sheet-pad stack" style={{ borderTop: '1px solid var(--line)' }}
+      onSubmit={(e) => { e.preventDefault(); save(value); }}>
+      <label className="field" style={{ margin: 0 }}>
+        <span>Nexus event code</span>
+        <div className="inline">
+          <input className="input" style={{ flex: 1 }} value={value} placeholder={event.key}
+            onChange={(e) => setValue(e.target.value)} autoCapitalize="none" autoCorrect="off" spellCheck="false"
+            aria-label="Nexus event code" />
+          <button className="btn primary" disabled={busy || value.trim().toLowerCase() === (event.nexusEventKey ?? '')}>
+            {busy ? 'Loading…' : 'Use code'}
+          </button>
+        </div>
+        <span className="hint" style={{ fontWeight: 400 }}>
+          Using <strong>{current}</strong>{event.nexusEventKey ? ` instead of the TBA code ${event.key}` : ' (same as TBA)'}.
+          Only change this if the event's page on frc.nexus shows a different code in its address.
+        </span>
+      </label>
+      {event.nexusEventKey && (
+        <div><button type="button" className="btn" style={{ minHeight: 36 }} disabled={busy} onClick={() => save('')}>
+          Go back to {event.key}
+        </button></div>
+      )}
+    </form>
   );
 }
 

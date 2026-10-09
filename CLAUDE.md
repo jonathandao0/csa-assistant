@@ -138,7 +138,7 @@ between linked tickets remounts the page and resets the form.
 | Store | Key | Shape |
 |---|---|---|
 | `settings` | out-of-line key | `tbaKey`, `nexusKey`, `nexusBase`, `eventIndex:<year>` → `{fetchedAt, events[]}` |
-| `events` | `key` | `{key, name, shortName, year, eventType, startDate, endDate, city, stateProv, country, teams[], matches[], nexus:{enabled, map, pits, live, inspection, error}, dayOverride, phaseOverride, addedAt, fetchedAt}` |
+| `events` | `key` | `{key, name, shortName, year, eventType, startDate, endDate, city, stateProv, country, teams[], matches[], nexus:{enabled, map, pits, live, inspection, error}, nexusEventKey, dayOverride, phaseOverride, addedAt, fetchedAt}` |
 | `readiness` | `id = "<eventKey>:<team>"` | `{eventKey, team, radio, inspection, field, ignored, notes, updatedAt}` |
 | `tickets` | `id` (uuid); indexes `eventKey`, `team` | `{eventKey, eventName, team:number, title, description, status, priority, tags[], lastMatch, resolution, links[], createdAt, updatedAt, resolvedAt}` |
 | `media` | `id = "<team>:<year>"` | TBA `{photos[] (direct URLs), avatar (data URL), fetchedAt}`, cached for 12 hours |
@@ -213,7 +213,8 @@ Changing the schema requires bumping the version in `openDB` and adding an upgra
 
 - Reloading the browser page never re-downloads by itself; the event page does it: opening (or reloading) an event whose `fetchedAt` is more than 5 minutes old re-syncs in the background (`AUTO_REFRESH_MS` in `EventPage.jsx`; skipped offline, for demo events, and with no API keys). The top-bar refresh icon always re-syncs.
 - `syncEvent()` refreshes TBA and Nexus independently for an event already saved: a TBA failure keeps the saved TBA fields/teams/schedule but still saves new Nexus data (e.g. a newly published pit map), and vice versa. Only adding a brand-new event requires TBA. It returns the record plus `warnings` (not stored); the refresh toast lists them instead of claiming success.
-- `dayOverride` and `phaseOverride` survive a refresh.
+- `dayOverride`, `phaseOverride` and `nexusEventKey` survive a refresh.
+- **Nexus event code override** (`nexusEventKey`): Nexus can file an event under a different code than TBA — seen for real with an offseason event, TBA `2026cass` vs. Nexus `2026cael`. `syncEvent()` sends every Nexus request (map, pits, live, inspection) to `nexusEventKey || key`. Set from the "Nexus event code" box on the Pit map tab (on the N/A screen and under a loaded map) via `setNexusEventKey()`, which clears the Nexus data loaded under the old code and re-syncs; an empty value or the TBA key itself resets it to null. Everything else (routes, tickets, Nexus match-label → TBA match-key mapping) keeps using the TBA `key`.
 - Nexus requests use `cache: 'no-store'` and TBA `cache: 'no-cache'`, so a browser HTTP-cache copy can never hide new data. The service worker doesn't cache either API.
 - The Pit map tab's N/A screen shows when Nexus was last checked.
 

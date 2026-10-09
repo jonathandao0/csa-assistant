@@ -67,12 +67,15 @@ export async function syncEvent(eventKey) {
   const matches = matchesR.value ?? null;
 
   const hasNexusKey = !!(await getSetting('nexusKey'));
+  // Nexus sometimes files an event under a different code than TBA (common for offseason
+  // events, e.g. TBA 2026cass vs. Nexus 2026cael); the per-event override wins.
+  const nexusCode = existing?.nexusEventKey || key;
   const [map, pits, live, inspection] = hasNexusKey
     ? await Promise.all([
-        settle(nexus(`/event/${key}/map`)),
-        settle(nexus(`/event/${key}/pits`)),
-        settle(nexus(`/event/${key}`)),
-        settle(nexus(`/event/${key}/inspection`)),
+        settle(nexus(`/event/${nexusCode}/map`)),
+        settle(nexus(`/event/${nexusCode}/pits`)),
+        settle(nexus(`/event/${nexusCode}`)),
+        settle(nexus(`/event/${nexusCode}/inspection`)),
       ])
     : [{}, {}, {}, {}];
 
@@ -119,6 +122,7 @@ export async function syncEvent(eventKey) {
     },
     dayOverride: existing?.dayOverride ?? null,
     phaseOverride: existing?.phaseOverride ?? null,
+    nexusEventKey: existing?.nexusEventKey ?? null,
     addedAt: existing?.addedAt ?? Date.now(),
     fetchedAt: Date.now(),
   };
@@ -200,3 +204,19 @@ export function searchEvents(index, query) {
     .sort((a, b) => (a.startDate < b.startDate ? -1 : 1))
     .slice(0, 40);
 }
+
+/** Points an event at a different Nexus event code (or back to its TBA key with an empty
+ *  value), drops the Nexus data loaded under the old code so none of it lingers, and
+ *  re-syncs. Returns syncEvent's result. */
+export async function setNexusEventKey(eventKey, code) {
+  const event = await db.get('events', eventKey);
+  const clean = String(code ?? '').trim().toLowerCase();
+  const nexusEventKey = clean && clean !== eventKey ? clean : null;
+  await db.put('events', {
+    ...event,
+    nexusEventKey,
+    nexus: { ...event.nexus, map: null, pits: null, live: null, inspection: null, error: null },
+  });
+  return syncEvent(eventKey);
+}
+

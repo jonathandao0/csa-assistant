@@ -209,6 +209,14 @@ Changing the schema requires bumping the version in `openDB` and adding an upgra
   - It is **unverified** whether Nexus allows direct browser requests.
   - If it doesn't, the user sets a proxy URL in Settings. The README includes a Cloudflare Worker for this.
 
+## Refreshing event data
+
+- Reloading the browser page never re-downloads by itself; the event page does it: opening (or reloading) an event whose `fetchedAt` is more than 5 minutes old re-syncs in the background (`AUTO_REFRESH_MS` in `EventPage.jsx`; skipped offline, for demo events, and with no API keys). The top-bar refresh icon always re-syncs.
+- `syncEvent()` refreshes TBA and Nexus independently for an event already saved: a TBA failure keeps the saved TBA fields/teams/schedule but still saves new Nexus data (e.g. a newly published pit map), and vice versa. Only adding a brand-new event requires TBA. It returns the record plus `warnings` (not stored); the refresh toast lists them instead of claiming success.
+- `dayOverride` and `phaseOverride` survive a refresh.
+- Nexus requests use `cache: 'no-store'` and TBA `cache: 'no-cache'`, so a browser HTTP-cache copy can never hide new data. The service worker doesn't cache either API.
+- The Pit map tab's N/A screen shows when Nexus was last checked.
+
 ## Business rules (in `src/lib/logic.js`)
 
 **Event day.** `eventDay()` works it out as follows:

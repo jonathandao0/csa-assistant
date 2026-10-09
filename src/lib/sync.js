@@ -41,14 +41,30 @@ async function settle(promise) {
   }
 }
 
-/** Downloads (or refreshes) everything needed to work the event offline. */
+/** Downloads (or refreshes) everything needed to work the event offline.
+ *
+ *  For an event already saved, TBA and Nexus are refreshed independently: a TBA hiccup
+ *  doesn't stop a newly published Nexus pit map from being saved, and vice versa. The
+ *  returned record carries `warnings` (not stored) describing anything that failed, so the
+ *  caller can say so instead of a plain "refreshed". */
 export async function syncEvent(eventKey) {
   const key = eventKey.toLowerCase().trim();
-  const [ev, teams, matches] = await Promise.all([
-    tba(`/event/${key}`),
-    tba(`/event/${key}/teams`),
-    tba(`/event/${key}/matches/simple`).catch(() => []),
+  const existing = await db.get('events', key);
+  const warnings = [];
+
+  const [evR, teamsR, matchesR] = await Promise.all([
+    settle(tba(`/event/${key}`)),
+    settle(tba(`/event/${key}/teams`)),
+    settle(tba(`/event/${key}/matches/simple`)),
   ]);
+  const tbaError = evR.error ?? teamsR.error;
+  // Nothing saved to fall back on: adding a new event needs TBA.
+  if (tbaError && !existing) throw new Error(tbaError);
+  if (tbaError) warnings.push(`Blue Alliance data wasn't updated: ${tbaError}`);
+  const tbaOk = !tbaError;
+  const ev = evR.value;
+  const teams = teamsR.value;
+  const matches = matchesR.value ?? null;
 
   const hasNexusKey = !!(await getSetting('nexusKey'));
   const [map, pits, live, inspection] = hasNexusKey
@@ -60,10 +76,9 @@ export async function syncEvent(eventKey) {
       ])
     : [{}, {}, {}, {}];
 
-  const existing = await db.get('events', key);
   const nexusError = [map, pits, live].find((r) => r.error)?.error ?? null;
-  const record = {
-    key,
+  if (nexusError) warnings.push(`FRC Nexus data wasn't updated: ${nexusError}`);
+  const tbaFields = tbaOk ? {
     name: ev.name,
     shortName: ev.short_name || ev.name,
     year: ev.year,
@@ -74,7 +89,12 @@ export async function syncEvent(eventKey) {
     city: ev.city,
     stateProv: ev.state_prov,
     country: ev.country,
-    teams: teams
+  } : {};
+  const record = {
+    ...existing,
+    key,
+    ...tbaFields,
+    teams: !tbaOk ? existing.teams : teams
       .map((t) => ({
         number: t.team_number,
         nickname: t.nickname,
@@ -87,7 +107,8 @@ export async function syncEvent(eventKey) {
         website: t.website,
       }))
       .sort((a, b) => a.number - b.number),
-    matches: sortMatches(matches.map(normalizeMatch)),
+    // A failed schedule request keeps the last good schedule rather than emptying it.
+    matches: matches ? sortMatches(matches.map(normalizeMatch)) : existing?.matches ?? [],
     nexus: {
       enabled: hasNexusKey,
       map: map.value ?? existing?.nexus?.map ?? null,
@@ -97,14 +118,15 @@ export async function syncEvent(eventKey) {
       error: nexusError,
     },
     dayOverride: existing?.dayOverride ?? null,
+    phaseOverride: existing?.phaseOverride ?? null,
     addedAt: existing?.addedAt ?? Date.now(),
     fetchedAt: Date.now(),
   };
   await db.put('events', record);
 
   // Warm robot photos in the background so they're available offline.
-  prefetchMedia(record).catch(() => {});
-  return record;
+  if (tbaOk) prefetchMedia(record).catch(() => {});
+  return { ...record, warnings };
 }
 
 async function prefetchMedia(event) {

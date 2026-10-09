@@ -13,7 +13,8 @@ export async function tba(path, keyOverride) {
   if (!key) throw new Error('Add your TBA API key in Settings first.');
   let res;
   try {
-    res = await fetch(TBA_BASE + path, { headers: { 'X-TBA-Auth-Key': key } });
+    // no-cache: always revalidate with TBA so a refresh never shows a stale browser copy.
+    res = await fetch(TBA_BASE + path, { headers: { 'X-TBA-Auth-Key': key }, cache: 'no-cache' });
   } catch {
     throw new Error('Could not reach The Blue Alliance. Check your connection.');
   }
@@ -30,7 +31,8 @@ export async function nexus(path, keyOverride) {
   const base = (await getSetting('nexusBase')) || defaultNexusBase();
   let res;
   try {
-    res = await fetch(base.replace(/\/$/, '') + path, { headers: { 'Nexus-Api-Key': key } });
+    // Live data (maps, pits, queue) that changes during an event: never use the HTTP cache.
+    res = await fetch(base.replace(/\/$/, '') + path, { headers: { 'Nexus-Api-Key': key }, cache: 'no-store' });
   } catch {
     throw new Error('Could not reach FRC Nexus. If this keeps happening, set a proxy URL in Settings.');
   }

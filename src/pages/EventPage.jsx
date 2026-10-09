@@ -1,8 +1,9 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import LedReference from '../components/LedReference.jsx';
 import PitMap from '../components/PitMap.jsx';
 import { Icon, Legend, Loading, Modal, ReadinessMarks, TeamBox, TicketRow, TopBar } from '../components/ui.jsx';
-import { db, useLive } from '../lib/db.js';
+import { db, getSetting, useLive } from '../lib/db.js';
+import { DEMO_EVENT_KEYS } from '../lib/devSeed.js';
 import {
   PHASE_LABELS,
   PRIORITY_WEIGHT,
@@ -61,10 +62,41 @@ export async function setIgnored(eventKey, team, ignored, current) {
   await db.put('readiness', { ...prev, ignored, updatedAt: Date.now() });
 }
 
+// Opening (or reloading) an event whose saved data is older than this re-downloads it in
+// the background, so a pit map Nexus published since the last refresh shows up on its own.
+const AUTO_REFRESH_MS = 5 * 60 * 1000;
+
+/** Re-syncs an event and reports the outcome: a plain "refreshed" only when everything
+ *  updated, otherwise what didn't (e.g. Nexus unreachable, so no new pit map). */
+async function runSync(key, { quiet = false } = {}) {
+  try {
+    const { warnings } = await syncEvent(key);
+    if (warnings.length) toast(warnings.join(' '));
+    else if (!quiet) toast('Event data refreshed');
+  } catch (e) {
+    if (!quiet) toast(e.message);
+  }
+}
+
 export default function EventPage({ eventKey, tab }) {
   const ctx = useEventContext(eventKey);
   const [syncing, setSyncing] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const autoSynced = useRef(null);
+
+  const fetchedAt = ctx.event?.fetchedAt;
+  useEffect(() => {
+    if (fetchedAt === undefined || autoSynced.current === eventKey) return;
+    autoSynced.current = eventKey;
+    if (DEMO_EVENT_KEYS.includes(eventKey) || !navigator.onLine) return;
+    if (Date.now() - fetchedAt < AUTO_REFRESH_MS) return;
+    (async () => {
+      if (!(await getSetting('tbaKey')) && !(await getSetting('nexusKey'))) return;
+      setSyncing(true);
+      await runSync(eventKey, { quiet: true });
+      setSyncing(false);
+    })();
+  }, [eventKey, fetchedAt]);
 
   if (ctx.loading) return <Loading />;
   if (ctx.missing) {
@@ -88,14 +120,8 @@ export default function EventPage({ eventKey, tab }) {
 
   async function refresh() {
     setSyncing(true);
-    try {
-      await syncEvent(event.key);
-      toast('Event data refreshed');
-    } catch (e) {
-      toast(e.message);
-    } finally {
-      setSyncing(false);
-    }
+    await runSync(event.key);
+    setSyncing(false);
   }
 
   async function exportReport(anonymize = false) {
@@ -197,7 +223,10 @@ function MapTab({ ctx, hasMap, onRetry, syncing }) {
             </text>
           </svg>
           <h2 style={{ margin: '8px 0 4px', fontSize: '1.1rem' }}>No pit map for this event</h2>
-          <p className="muted" style={{ margin: '0 0 14px', maxWidth: 360 }}>{reason}</p>
+          <p className="muted" style={{ margin: '0 0 4px', maxWidth: 360 }}>{reason}</p>
+          <p className="small muted" style={{ margin: '0 0 14px' }}>
+            Last checked {new Date(event.fetchedAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}.
+          </p>
           <div className="inline" style={{ justifyContent: 'center' }}>
             <button className="btn" onClick={onRetry} disabled={syncing}>{syncing ? 'Checking…' : 'Check again'}</button>
             {!event.nexus?.enabled && <a className="btn primary" href="#/settings">Open Settings</a>}

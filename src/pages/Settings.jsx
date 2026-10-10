@@ -3,7 +3,9 @@ import { TopBar } from '../components/ui.jsx';
 import { defaultNexusBase, nexus, tba } from '../lib/api.js';
 import { STORES, db, getSetting, setSetting, useLive } from '../lib/db.js';
 import { seedDevEvent } from '../lib/devSeed.js';
-import { ticketYear } from '../lib/logic.js';
+import { syncWithSignIn, useSyncStatus } from '../lib/cloudSync.js';
+import { BUILT_IN_CLIENT_ID, disconnect, preloadGoogleSignIn } from '../lib/drive.js';
+import { formatDateTime, ticketYear } from '../lib/logic.js';
 import { goBack, nav } from '../lib/router.js';
 import { THEMES, useTheme } from '../lib/theme.js';
 import { deleteTickets, downloadBlob, exportBackup, importBackup, toast } from '../lib/util.js';
@@ -95,6 +97,91 @@ function TicketHistory() {
   );
 }
 
+/** Google Drive sync: connect once per device, then data merges through one Drive file. */
+function DriveSync() {
+  const connected = useLive(() => getSetting('driveConnected', false), []);
+  const lastSync = useLive(() => getSetting('driveLastSync', 0), []);
+  const savedClientId = useLive(() => getSetting('googleClientId', ''), []);
+  const [clientId, setClientId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const status = useSyncStatus();
+  useEffect(() => {
+    if (savedClientId !== undefined) setClientId(savedClientId);
+  }, [savedClientId]);
+  const hasClientId = !!(BUILT_IN_CLIENT_ID || savedClientId);
+  useEffect(() => {
+    if (hasClientId) preloadGoogleSignIn();
+  }, [hasClientId]);
+
+  async function run(firstTime) {
+    setBusy(true);
+    try {
+      await syncWithSignIn({ firstTime });
+      toast(firstTime ? 'Connected to Google Drive and synced' : 'Synced with Google Drive');
+    } catch (e) {
+      toast(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function stop() {
+    if (!confirm('Stop syncing this device with Google Drive? Data on this device and the file in Drive are both kept.')) return;
+    await disconnect();
+    toast('Disconnected from Google Drive');
+  }
+
+  const statusLine = status.state === 'syncing' ? 'Syncing…'
+    : status.state === 'error' ? `Last sync failed: ${status.message}`
+    : status.state === 'signin' ? 'Signed out of Google. Tap Sync now to sign in again.'
+    : lastSync ? `Last synced ${formatDateTime(lastSync)}.` : 'Not synced yet.';
+
+  return (
+    <section className="section">
+      <div className="section-head"><h2>Google Drive sync</h2></div>
+      <div className="sheet sheet-pad stack">
+        <p className="small muted" style={{ margin: 0 }}>
+          Keep events, tickets, readiness, notes and your robot photos in step across your phone, tablet and
+          computer. Each device merges with one file in your Google Drive (the newest change to each item wins,
+          and deletions carry over). The app can only see files it created. API keys and settings stay on each device.
+        </p>
+        {!BUILT_IN_CLIENT_ID && (
+          <label className="field" style={{ margin: 0 }}>
+            <span>Google OAuth client ID</span>
+            <div className="inline">
+              <input className="input" style={{ flex: 1 }} value={clientId} onChange={(e) => setClientId(e.target.value)}
+                placeholder="…apps.googleusercontent.com" autoCapitalize="none" spellCheck="false" />
+              <button className="btn" disabled={clientId.trim() === (savedClientId ?? '')}
+                onClick={() => setSetting('googleClientId', clientId.trim()).then(() => toast('Saved'))}>Save</button>
+            </div>
+            <span className="hint" style={{ fontWeight: 400 }}>
+              One-time setup in Google Cloud, explained in the README. Use the same ID on every device.
+            </span>
+          </label>
+        )}
+        {connected ? (
+          <>
+            <p className="small" style={{ margin: 0 }}>{statusLine}</p>
+            <div className="inline">
+              <button className="btn primary" onClick={() => run(false)} disabled={busy || status.state === 'syncing'}>
+                {busy || status.state === 'syncing' ? 'Syncing…' : 'Sync now'}
+              </button>
+              <button className="btn" onClick={stop} disabled={busy}>Disconnect</button>
+            </div>
+            <p className="hint" style={{ margin: 0 }}>Syncs on its own after changes and when you reopen the app, while you're signed in.</p>
+          </>
+        ) : (
+          <div>
+            <button className="btn primary" onClick={() => run(true)} disabled={busy || !hasClientId}>
+              {busy ? 'Connecting…' : 'Connect Google Drive'}
+            </button>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function Appearance() {
   const { pref, setPref } = useTheme();
   return (
@@ -143,7 +230,10 @@ export default function Settings() {
   }
 
   async function eraseAll() {
-    if (!confirm('Erase all events, tickets, readiness, and photos from this device? This cannot be undone.')) return;
+    const synced = await getSetting('driveConnected', false);
+    if (!confirm(synced
+      ? 'Erase all events, tickets, readiness, and photos? Google Drive sync is on, so this erases them from your other synced devices too. This cannot be undone.'
+      : 'Erase all events, tickets, readiness, and photos from this device? This cannot be undone.')) return;
     for (const s of STORES) if (s !== 'settings') await db.clear(s);
     toast('All event data erased');
     nav('/');
@@ -182,6 +272,8 @@ export default function Settings() {
 
         <Appearance />
 
+        <DriveSync />
+
         <section className="section">
           <div className="section-head"><h2>Nexus connection</h2></div>
           <div className="sheet sheet-pad stack">
@@ -202,8 +294,8 @@ export default function Settings() {
           <div className="section-head"><h2>Your data</h2></div>
           <div className="sheet sheet-pad stack">
             <p className="small muted" style={{ margin: 0 }}>
-              Everything is stored only on this device. Export a backup before clearing browser data or switching phones.
-              Backups don't include your API keys.
+              Everything is stored on this device, and also in your Google Drive if sync is on. Export a backup
+              before clearing browser data or switching phones. Backups don't include your API keys.
             </p>
             <div className="inline">
               <button className="btn" onClick={doExport}>Export backup</button>

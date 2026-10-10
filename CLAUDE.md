@@ -48,7 +48,7 @@ from @fontsource. Plain JavaScript and JSX, no TypeScript.
 
 | # | Topic | Decision |
 |---|---|---|
-| 1 | Users / sync | Single user, data only on the device (IndexedDB). Export an event summary as a **Word .docx report** showing number of issues, most common issues, and most difficult or recurring issue. A JSON backup and restore was also added. |
+| 1 | Users / sync | Single user, data on the device (IndexedDB); the owner later asked for **optional Google Drive sync across devices** (see "Google Drive sync"). Export an event summary as a **Word .docx report** showing number of issues, most common issues, and most difficult or recurring issue. A JSON backup and restore was also added. |
 | 2 | Offline | Yes. Cache all event data when the event is added or refreshed, and work offline in the venue. |
 | 3 | Hosting | Local development now, GitHub Pages later. |
 | 4 | Nexus | The owner has a Nexus API key and uses the official API. |
@@ -109,6 +109,8 @@ src/
   lib/dockerNames.js     random Docker-style names for the anonymized report
   lib/demoMode.js        DEMO_MODE flag, ensureDemoSeeded(), installed-app detection, install prompt
   lib/theme.js           light/dark preference: applyTheme(), useTheme()
+  lib/drive.js           Google sign-in (GIS token) + Drive REST for the sync file
+  lib/cloudSync.js       mergeSnapshots(), syncNow(), startAutoSync(), useSyncStatus()
   lib/ledCodes.js        static CTRE/REV status-LED reference data (Reference tab)
   components/ui.jsx      Icon, TopBar, TeamBox, ReadinessMarks, StatusPill, TicketRow, Legend, Modal, Toaster
   components/PitMap.jsx  SVG renderer for Nexus map JSON
@@ -138,7 +140,7 @@ between linked tickets remounts the page and resets the form.
 
 | Store | Key | Shape |
 |---|---|---|
-| `settings` | out-of-line key | `tbaKey`, `nexusKey`, `nexusBase`, `eventIndex:<year>` → `{fetchedAt, events[]}` |
+| `settings` | out-of-line key | `tbaKey`, `nexusKey`, `nexusBase`, `eventIndex:<year>` → `{fetchedAt, events[]}`, Drive sync: `googleClientId`, `driveConnected`, `driveFileId`, `driveLastSync`, `syncTombstones`, `syncCleared` |
 | `events` | `key` | `{key, name, shortName, year, eventType, startDate, endDate, city, stateProv, country, teams[], matches[], nexus:{enabled, map, pits, live, inspection, error, check:{at, code, map, pits, live, inspection}}, nexusEventKey, dayOverride, phaseOverride, addedAt, fetchedAt}` |
 | `readiness` | `id = "<eventKey>:<team>"` | `{eventKey, team, radio, inspection, field, ignored, notes, nexusApplied:{radio?, inspection?}, updatedAt}` |
 | `tickets` | `id` (uuid); indexes `eventKey`, `team` | `{eventKey, eventName, team:number, title, description, status, priority, tags[], lastMatch, resolution, links[], createdAt, updatedAt, resolvedAt}` |
@@ -219,6 +221,19 @@ Changing the schema requires bumping the version in `openDB` and adding an upgra
 - **Nexus event code override** (`nexusEventKey`): Nexus can file an event under a different code than TBA — seen for real with an offseason event, TBA `2026cass` vs. Nexus `2026cael`. `syncEvent()` sends every Nexus request (map, pits, live, inspection) to `nexusEventKey || key`. Set from the "Nexus event code" box on the Pit map tab (on the N/A screen and under a loaded map) via `setNexusEventKey()`, which clears the Nexus data loaded under the old code and re-syncs; an empty value or the TBA key itself resets it to null. Everything else (routes, tickets, Nexus match-label → TBA match-key mapping) keeps using the TBA `key`.
 - Nexus requests use `cache: 'no-store'` and TBA `cache: 'no-cache'`, so a browser HTTP-cache copy can never hide new data. The service worker doesn't cache either API.
 - The Pit map tab's N/A screen shows when Nexus was last checked.
+
+## Google Drive sync
+
+Owner asked for cross-platform, cross-device data. Optional, per device, from Settings → Google Drive sync.
+
+- **Auth** (`lib/drive.js`): Google Identity Services token client (script `accounts.google.com/gsi/client`, loaded on demand and preloaded on Settings/Home so the popup opens from the tap), scope `drive.file` only. Client ID from `VITE_GOOGLE_CLIENT_ID` (deploy workflow reads repo variable `GOOGLE_CLIENT_ID`) or the `googleClientId` setting. The access token (~1 h) is kept in `localStorage` (`csa-drive-token`) so reloads don't re-prompt; on expiry/401 auto-sync pauses with status `signin` until a tap re-signs in. Owner setup steps are in the README.
+- **File:** one `CSA Assistant sync.json` in the user's Drive (ID cached in setting `driveFileId`, re-found by name if deleted). Same `{app, stores}` shape as a backup, plus `tombstones`/`cleared`, so Restore backup can read it.
+- **What syncs:** `SYNCED_STORES` in `db.js` = events, readiness, tickets, photos. Not `media` (TBA cache) or `settings` (API keys, per-device prefs).
+- **Change tracking** (`db.js`): every `db.put`/`putMany` on a synced store stamps `_mod = Date.now()`; `db.del` writes a tombstone (`syncTombstones` setting, `"<store>:<key>" → time`); `db.clear` writes `syncCleared[store]`. Sync applies remote rows with `db.applyRaw()`, which keeps `_mod` and leaves no tombstones.
+- **Merge** (`mergeSnapshots()` in `lib/cloudSync.js`, pure): per record, newest `_mod` wins (falls back to `updatedAt`/`fetchedAt`/`addedAt`; ties keep local); a record is dropped if a tombstone or clear is newer. `syncNow()` = download → merge → write only rows that differ → upload only if the file would change. Concurrent calls share one run.
+- **Auto-sync** (`startAutoSync()`, called from `main.jsx`): on start, 15 s after local DB changes settle, when the app returns to the foreground (if last sync > 1 min ago), and on `online`; only while connected with a live token. The sync's own writes set `applying` so they don't schedule another sync. Status is broadcast as `csa-sync` events (`useSyncStatus()`); Home shows a cloud button (pulses while syncing, dot on error/sign-in) when connected.
+- Erase all event data propagates to synced devices (the confirm says so). Disconnect revokes the token and keeps both the local data and the Drive file.
+- **Verified** with two browser profiles against a mocked Drive API and mocked GIS (connect, first sync to an empty device, concurrent edit + delete + add converge, no-op sync uploads nothing). **Not verified** against real Google, or the GIS popup inside an installed iOS/Android PWA.
 
 ## Readiness from Nexus
 

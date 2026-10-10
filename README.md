@@ -57,6 +57,37 @@ of an empty "add your API key" screen. A banner on Home explains it's fake data 
 `npm run build` (for your own real install) never sets it, so it never seeds fake events into
 an actual deployment.
 
+### Google Drive sync (across devices)
+
+Settings → **Google Drive sync** keeps events, tickets, readiness, notes and your robot photos in
+step between devices (phone, tablet, laptop; Android, iOS or desktop). Each device merges with one
+file, `CSA Assistant sync.json`, in your own Google Drive: the newest change to each item wins and
+deletions carry over. The app uses the `drive.file` permission, so it can only see files it created.
+API keys and per-device settings are not synced. Enter them on each device.
+
+It needs a Google OAuth client ID, which takes about five minutes to set up once:
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), create a project (any name).
+2. **APIs & Services → Library**: enable the **Google Drive API**.
+3. **APIs & Services → OAuth consent screen**: choose **External**, fill in the app name and your
+   email, add the scope `.../auth/drive.file`, and add your own Google account under
+   **Test users**. While the app is in "Testing", only test users can sign in, which is fine for
+   personal use.
+4. **APIs & Services → Credentials → Create credentials → OAuth client ID**, type **Web
+   application**. Under **Authorized JavaScript origins** add `https://jonathandao0.github.io`
+   (your Pages origin, no path) and `http://localhost:5173` for development. No redirect URIs
+   are needed.
+5. Copy the client ID (`….apps.googleusercontent.com`) and either:
+   - paste it into Settings → Google Drive sync on each device, or
+   - add it as a repository variable named `GOOGLE_CLIENT_ID` (**Settings → Secrets and
+     variables → Actions → Variables**), and the deploy workflow will build it in.
+     A client ID is public by design; it isn't a secret.
+
+Then tap **Connect Google Drive** on each device. After that it syncs on its own a few seconds
+after changes and when you reopen the app, and the cloud button on Home syncs on demand. Google's
+sign-in lasts about an hour. After that, auto-sync pauses (the cloud button shows a dot) until you
+tap Sync, which signs you in again.
+
 ### About Nexus and cross-origin requests
 
 On `localhost`, the Vite dev/preview server proxies Nexus requests (`/nexus-api` →

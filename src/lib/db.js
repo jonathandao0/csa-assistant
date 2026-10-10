@@ -37,8 +37,27 @@ function createStores(db) {
 
 export const STORES = ['settings', 'events', 'readiness', 'tickets', 'media', 'photos'];
 
+// Stores synced across devices through Google Drive (lib/cloudSync.js). Every normal write
+// to one of these stamps `_mod` (last-modified time, used to pick the newest copy of a
+// record), and every delete leaves a tombstone so the deletion syncs too. `media` is a
+// re-downloadable TBA cache and `settings` holds per-device things (API keys), so neither
+// syncs.
+export const SYNCED_STORES = ['events', 'readiness', 'tickets', 'photos'];
+const TOMBSTONES = 'syncTombstones'; // settings key: { "<store>:<key>": deletedAt }
+const CLEARED = 'syncCleared'; // settings key: { <store>: clearedAt }
+
 function notify() {
   window.dispatchEvent(new Event('csa-db'));
+}
+
+const synced = (store) => SYNCED_STORES.includes(store);
+const stamp = (store, value) =>
+  synced(store) && value && typeof value === 'object' ? { ...value, _mod: Date.now() } : value;
+
+async function recordDeletion(d, settingKey, field) {
+  const map = (await d.get('settings', settingKey)) ?? {};
+  map[field] = Date.now();
+  await d.put('settings', map, settingKey);
 }
 
 export const db = {
@@ -53,21 +72,33 @@ export const db = {
   },
   async put(store, value, key) {
     const d = await dbPromise;
-    const r = key === undefined ? await d.put(store, value) : await d.put(store, value, key);
+    const v = stamp(store, value);
+    const r = key === undefined ? await d.put(store, v) : await d.put(store, v, key);
     notify();
     return r;
   },
   async putMany(store, values) {
     const tx = (await dbPromise).transaction(store, 'readwrite');
-    await Promise.all([...values.map((v) => tx.store.put(v)), tx.done]);
+    await Promise.all([...values.map((v) => tx.store.put(stamp(store, v))), tx.done]);
     notify();
   },
   async del(store, key) {
-    await (await dbPromise).delete(store, key);
+    const d = await dbPromise;
+    await d.delete(store, key);
+    if (synced(store)) await recordDeletion(d, TOMBSTONES, `${store}:${key}`);
     notify();
   },
   async clear(store) {
-    await (await dbPromise).clear(store);
+    const d = await dbPromise;
+    await d.clear(store);
+    if (synced(store)) await recordDeletion(d, CLEARED, store);
+    notify();
+  },
+  /** Cloud sync only: writes/deletes rows exactly as given (keeping their `_mod`, leaving no
+   *  tombstones) in one transaction per store. */
+  async applyRaw(store, puts, deletes) {
+    const tx = (await dbPromise).transaction(store, 'readwrite');
+    await Promise.all([...puts.map((v) => tx.store.put(v)), ...deletes.map((k) => tx.store.delete(k)), tx.done]);
     notify();
   },
   async entries(store) {

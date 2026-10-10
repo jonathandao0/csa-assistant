@@ -30,6 +30,10 @@ jobs:
           # Only this deployed build auto-seeds fake sample data for first-time visitors —
           # a local `npm run build` for your own real install never sets this.
           VITE_DEMO_MODE: 'true'
+          # Google OAuth client ID for Drive sync (repo Settings → Secrets and variables →
+          # Actions → Variables → GOOGLE_CLIENT_ID). Optional: without it, the app asks for the
+          # ID in Settings instead. A client ID is public by design; it is not a secret.
+          VITE_GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

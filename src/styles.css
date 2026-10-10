@@ -387,6 +387,30 @@ button.mark:not(.done) {
   }
 }
 
+/* Home top bar: Google Drive sync button. A dot flags a failed sync or an expired sign-in. */
+.sync-btn {
+  position: relative;
+}
+.sync-btn.syncing svg {
+  animation: sync-pulse 1s ease-in-out infinite alternate;
+}
+.sync-btn.error::after,
+.sync-btn.signin::after {
+  content: '';
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--st-watch);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+@keyframes sync-pulse {
+  from { opacity: 1; }
+  to { opacity: 0.35; }
+}
+
 /* ---------- Pills & chips ---------- */
 .pill {
   display: inline-block;

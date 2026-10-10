@@ -7,9 +7,11 @@ import '@fontsource/barlow-condensed/700.css';
 import './styles.css';
 import App from './App.jsx';
 import { applyTheme } from './lib/theme.js';
+import { startAutoSync } from './lib/cloudSync.js';
 
 applyTheme();
 registerSW({ immediate: true });
+startAutoSync();
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>

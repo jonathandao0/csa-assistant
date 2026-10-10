@@ -7,6 +7,8 @@ import { dayCaption, eventDay, formatDateRange } from '../lib/logic.js';
 import { nav } from '../lib/router.js';
 import { getEventIndex, searchEvents, syncEvent } from '../lib/sync.js';
 import { useTheme } from '../lib/theme.js';
+import { syncWithSignIn, useSyncStatus } from '../lib/cloudSync.js';
+import { preloadGoogleSignIn } from '../lib/drive.js';
 import { toast } from '../lib/util.js';
 
 const KEY_PATTERN = /^\d{4}[a-z0-9]+$/i;
@@ -22,6 +24,11 @@ export default function Home() {
   const [resettingDemo, setResettingDemo] = useState(false);
 
   const { theme, setPref } = useTheme();
+  const driveConnected = useLive(() => getSetting('driveConnected', false), []);
+  const syncStatus = useSyncStatus();
+  useEffect(() => {
+    if (driveConnected) preloadGoogleSignIn();
+  }, [driveConnected]);
 
   useEffect(() => {
     if (DEMO_MODE) ensureDemoSeeded();
@@ -86,6 +93,14 @@ export default function Home() {
               onClick={() => setPref(theme === 'dark' ? 'light' : 'dark')}>
               <Icon name={theme === 'dark' ? 'sun' : 'moon'} />
             </button>
+            {driveConnected && (
+              <button className={`icon-btn sync-btn ${syncStatus.state}`} disabled={syncStatus.state === 'syncing'}
+                aria-label={syncStatus.state === 'signin' ? 'Sign in to Google Drive and sync' : 'Sync with Google Drive'}
+                title={syncStatus.state === 'error' ? `Last sync failed: ${syncStatus.message}` : 'Sync with Google Drive'}
+                onClick={() => syncWithSignIn().then(() => toast('Synced with Google Drive'), (e) => toast(e.message))}>
+                <Icon name="cloud" />
+              </button>
+            )}
             <button className="icon-btn" aria-label="Settings" onClick={() => nav('/settings')}>
               <Icon name="settings" />
             </button>

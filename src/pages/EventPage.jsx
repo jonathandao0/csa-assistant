@@ -523,9 +523,30 @@ function ReadinessPriorities({ ctx, sortBy, sortDir, resortToken }) {
   );
 }
 
+// Whether the Priority list's "Open tickets" section is collapsed. A per-device convenience,
+// so it's kept in localStorage (guarded: storage can be blocked) and survives tab switches.
+const OPEN_COLLAPSED_KEY = 'csa-open-tickets-collapsed';
+function readOpenCollapsed() {
+  try {
+    return localStorage.getItem(OPEN_COLLAPSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 function MatchPriorities({ ctx, sortBy, sortDir, resortToken }) {
   const { event, openByTeam, readiness, colorFor } = ctx;
   const nexusTimes = useMemo(() => nexusTimesByMatchKey(event), [event]);
+  const [openCollapsed, setOpenCollapsed] = useState(readOpenCollapsed);
+  const toggleOpen = () => {
+    const next = !openCollapsed;
+    setOpenCollapsed(next);
+    try {
+      localStorage.setItem(OPEN_COLLAPSED_KEY, next ? '1' : '0');
+    } catch {
+      // Storage blocked; the choice still holds until the page is left.
+    }
+  };
   const order = Object.fromEntries(event.matches.map((m, i) => [m.key, i]));
   const byTeam = sortBy === 'team';
 
@@ -614,11 +635,16 @@ function MatchPriorities({ ctx, sortBy, sortDir, resortToken }) {
       )}
       {withOpen.length > 0 && (
         <section className="section">
-          <div className="section-head">
+          <button className="section-head section-toggle" aria-expanded={!openCollapsed} onClick={toggleOpen}>
             <h2>Open tickets</h2>
-            <span className="aside">{withOpen.length} team{withOpen.length === 1 ? '' : 's'}</span>
-          </div>
-          <ul className="row-list sheet">{withOpen.map((r) => <Row key={r.t.number} r={r} />)}</ul>
+            <span className="aside">
+              {withOpen.length} team{withOpen.length === 1 ? '' : 's'}
+              <span className="led-chevron"><Icon name="chevron" size={18} /></span>
+            </span>
+          </button>
+          {!openCollapsed && (
+            <ul className="row-list sheet">{withOpen.map((r) => <Row key={r.t.number} r={r} />)}</ul>
+          )}
         </section>
       )}
       <section className="section">

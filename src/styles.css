@@ -855,6 +855,25 @@ textarea.input {
 .led-device-head[aria-expanded='true'] .led-chevron {
   transform: rotate(180deg);
 }
+/* A section heading that collapses its list (Priority list → Open tickets). */
+.section-toggle {
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  padding: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.section-toggle .aside {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.section-toggle[aria-expanded='true'] .led-chevron {
+  transform: rotate(180deg);
+}
 .led-device-body {
   padding: 10px 0 0;
 }

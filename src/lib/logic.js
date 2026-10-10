@@ -343,3 +343,33 @@ export function nexusReadiness(event, team) {
   }
   return { inspectionStatus: statusText || null, inspectionPassed, radio };
 }
+
+// ---------- Auto-tagging ----------
+
+// Keyword rules that suggest preset tags from free text (ticket title + description, or a
+// pasted Nexus message). Case-insensitive except CAN, which is matched in capitals only so
+// the word "can" doesn't tag everything. Follow-up is never auto-added.
+const AUTO_TAG_RULES = [
+  ['Radio', /\bradio\b|wi-?fi|wireless|vh-?109|\bbridge\b/i],
+  ['Systemcore', /systemcore|roborio|\brio\b/i],
+  ['CAN bus', /\bCAN\b|can ?bus|canivore/],
+  ['Brownout / power', /brown ?-?out|\bpower\b|voltage|\bpdh\b|\bpdp\b|breaker/i],
+  ['Battery', /batter(y|ies)/i],
+  ['Wiring', /wiring|\bwires?\b|connector|crimp|ethernet|cable/i],
+  ['Motor controller', /motor controller|spark ?(max|flex)?|talon|victor|kraken|falcon|\bneo\b/i],
+  ['Code', /\bcode\b|software|programming|deploy|crash|\bjava\b|c\+\+|python|labview|kotlin/i],
+  ['Driver Station', /driver ?station|\bds\b|joystick|gamepad/i],
+  ['Field connection', /\bfield\b|\bfms\b|comms|communication|disconnect|connection|network/i],
+  ['Firmware / imaging', /firmware|imag(e|ing)|re-?flash|update/i],
+  ['Camera / vision', /camera|vision|limelight|photon/i],
+  ['Pneumatics', /pneumatic|compressor|solenoid|air leak/i],
+  ['Sensors', /sensor|encoder|gyro|pigeon|navx|limit switch/i],
+  ['Mechanical', /mechanical|gearbox|\bgears?\b|\bchain\b|\bbelt\b|bearing|\bbolts?\b|\bshaft\b|intake|shooter|elevator|drivetrain|swerve module/i],
+];
+
+
+/** Preset tags whose keywords appear in the text. */
+export function autoTags(text) {
+  const s = String(text ?? '');
+  return AUTO_TAG_RULES.filter(([, re]) => re.test(s)).map(([tag]) => tag);
+}

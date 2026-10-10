@@ -1,3 +1,5 @@
+import { autoTags } from './logic.js';
+
 // Turns a message FRC Nexus posted to a CSA Slack channel (copied and pasted into the app)
 // into a ticket draft. Two kinds are known, roughly (exact wording unconfirmed):
 //
@@ -29,26 +31,8 @@ export function cleanSlackText(raw) {
     .trim();
 }
 
-const TAG_RULES = [
-  ['Radio', /\bradio\b|wi-?fi|wireless|vh-?109|\bbridge\b/i],
-  ['Systemcore', /systemcore|roborio|\brio\b/i],
-  ['CAN bus', /\bCAN\b|can ?bus|canivore/],
-  ['Brownout / power', /brown ?-?out|\bpower\b|voltage|\bpdh\b|\bpdp\b|breaker/i],
-  ['Battery', /batter(y|ies)/i],
-  ['Wiring', /wiring|\bwires?\b|connector|crimp|ethernet|cable/i],
-  ['Motor controller', /motor controller|spark ?(max|flex)?|talon|victor|kraken|falcon|\bneo\b/i],
-  ['Code', /\bcode\b|software|programming|deploy|crash|\bjava\b|c\+\+|python|labview|kotlin/i],
-  ['Driver Station', /driver ?station|\bds\b|joystick|gamepad/i],
-  ['Field connection', /\bfield\b|\bfms\b|comms|communication|disconnect|connection|network/i],
-  ['Firmware / imaging', /firmware|imag(e|ing)|re-?flash|update/i],
-  ['Camera / vision', /camera|vision|limelight|photon/i],
-  ['Pneumatics', /pneumatic|compressor|solenoid|air leak/i],
-  ['Sensors', /sensor|encoder|gyro|pigeon|navx|limit switch/i],
-];
-
-export function tagsFor(text) {
-  return TAG_RULES.filter(([, re]) => re.test(text)).map(([tag]) => tag);
-}
+// Keyword → tag rules live in logic.js (shared with the ticket form's auto-tagging).
+export const tagsFor = autoTags;
 
 /** Nexus match names → the labels used everywhere else in the app (see matchLabel). */
 function matchFrom(text) {

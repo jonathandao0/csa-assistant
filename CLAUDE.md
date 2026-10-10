@@ -82,7 +82,7 @@ the owner asks otherwise:
 - **Nexus Slack import** (`lib/nexusImport.js`): Tickets tab → "Import from a Nexus Slack message" → paste → preview → the ticket form at route id `import`, pre-filled via a one-slot draft (memory + sessionStorage). The owner gave two approximate formats (exact wording still unconfirmed; they'll send real copies later):
   `Team 9999 has requested help with the following:` + one issue per line (e.g. `Networking connection issues`, `Programming - java`), and
   `An FTA has requested a CSA to follow up with team 9999` + `FTA notes:` + note lines.
-  `parseNexusMessage()` stays heuristic so small wording changes still work: strips Slack markup; `kind` is `fta` when the text mentions FTA and follow-up (title prefixed "FTA follow-up: ", `Follow-up` tag added); issues/notes are the lines under the first `...:` header (stopping at a blank line, another header or a `Key: value` field), else bullets, else text after "help with"; team from `Team N`/`frcN`/`#N`, else a roster number, else pit → team via Nexus pits; a match preceded by "next/queue/upcoming" isn't used as last match; tags via keyword rules (`network` → Field connection, `java`/`python`/… → Code). Update it when real messages arrive;
+  `parseNexusMessage()` stays heuristic so small wording changes still work: strips Slack markup; `kind` is `fta` when the text mentions FTA and follow-up (title prefixed "FTA follow-up: ", `Follow-up` tag added); issues/notes are the lines under the first `...:` header (stopping at a blank line, another header or a `Key: value` field), else bullets, else text after "help with"; team from `Team N`/`frcN`/`#N`, else a roster number, else pit → team via Nexus pits; a match preceded by "next/queue/upcoming" isn't used as last match; tags via `autoTags()` keyword rules (`network` → Field connection, `java`/`python`/… → Code). Update it when real messages arrive;
 - a dev-only **Settings** button (`import.meta.env.DEV`) that seeds two fake linked events for UI testing without API keys;
 - **light/dark mode** (`lib/theme.js`): Settings → Appearance (Match device / Light / Dark) plus a sun/moon toggle on Home. Stored in `localStorage` (`csa-theme`) so it applies before first paint; sets `data-theme` on `<html>`. Dark CSS applies under `@media (prefers-color-scheme: dark) :root:not([data-theme='light'])` and under `:root[data-theme='dark']` — any new dark-only rule needs both;
 - the Word report is exported **only** from the button at the bottom of the event's Tickets tab (no top-bar icon);
@@ -300,6 +300,8 @@ schedule, not the calendar day, so a rain delay or an early start doesn't fool i
 - a full ticket log.
 
 Tags come from the preset list `PRESET_TAGS`, plus any custom tags used before (these are offered again automatically).
+
+**Auto-tagging.** `autoTags(text)` in `logic.js` (`AUTO_TAG_RULES`, keyword regex → preset tag; `CAN` only in capitals so the word "can" doesn't match; never `Follow-up`) is shared by the ticket form and the Nexus Slack import. On the ticket form, matching tags are added ~400 ms after you stop typing in the title or description. A tag you remove by hand isn't re-added for the rest of that form, and nothing runs until the text is edited, so opening an existing ticket never changes its tags. The Tags field's hint lists what was auto-added.
 
 ## Design system
 

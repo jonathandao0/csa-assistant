@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon, Loading, Modal, StatusPill, TopBar } from '../components/ui.jsx';
 import { db, newId, useLive } from '../lib/db.js';
 import {
@@ -6,6 +6,7 @@ import {
   PRIORITIES,
   TAG_CATEGORIES,
   TICKET_STATUS,
+  autoTags,
   formatDateTime,
   lastPlayedMatch,
   matchLabel,
@@ -49,6 +50,28 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
   const [picking, setPicking] = useState(false);
   const [customTag, setCustomTag] = useState('');
   const [error, setError] = useState('');
+  // Auto-tagging: tags suggested by the title/description are added as you type. Tags you
+  // remove by hand are remembered for this form so they aren't added straight back, and
+  // nothing runs until the text is actually edited (opening an old ticket changes nothing).
+  const [autoAdded, setAutoAdded] = useState(() => new Set());
+  const dismissed = useRef(new Set());
+  const textEdited = useRef(false);
+  const formTitle = form?.title;
+  const formDescription = form?.description;
+  useEffect(() => {
+    if (!textEdited.current) return undefined;
+    const timer = setTimeout(() => {
+      const found = autoTags(`${formTitle ?? ''}\n${formDescription ?? ''}`)
+        .filter((t) => !dismissed.current.has(t));
+      setForm((f) => {
+        const add = found.filter((t) => !f.tags.includes(t));
+        if (!add.length) return f;
+        setAutoAdded((prev) => new Set([...prev, ...add]));
+        return { ...f, tags: [...f.tags, ...add] };
+      });
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [formTitle, formDescription]);
 
   // Initialise the form once the ticket (or a blank one) is available.
   useEffect(() => {
@@ -156,7 +179,15 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
   const teamSuggestions = teamText ? teams.filter((t) => String(t.number).startsWith(teamText)).slice(0, 8) : [];
 
   function toggleTag(tag) {
-    set({ tags: form.tags.includes(tag) ? form.tags.filter((t) => t !== tag) : [...form.tags, tag] });
+    const removing = form.tags.includes(tag);
+    if (removing) dismissed.current.add(tag);
+    else dismissed.current.delete(tag);
+    setAutoAdded((prev) => {
+      const next = new Set(prev);
+      next.delete(tag);
+      return next;
+    });
+    set({ tags: removing ? form.tags.filter((t) => t !== tag) : [...form.tags, tag] });
   }
 
   function addCustomTag(e) {
@@ -270,13 +301,13 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
 
         <label className="field">
           <span>Title</span>
-          <input className="input" value={form.title} onChange={(e) => set({ title: e.target.value })}
+          <input className="input" value={form.title} onChange={(e) => { textEdited.current = true; set({ title: e.target.value }); }}
             placeholder="e.g. Radio drops after hard hits" maxLength={120} />
         </label>
 
         <label className="field">
           <span>Description</span>
-          <textarea className="input" value={form.description} onChange={(e) => set({ description: e.target.value })}
+          <textarea className="input" value={form.description} onChange={(e) => { textEdited.current = true; set({ description: e.target.value }); }}
             placeholder="What the team saw, what you checked, logs or LED states" />
         </label>
 
@@ -302,6 +333,10 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
 
         <div className="field">
           <span>Tags</span>
+          <span className="hint" style={{ fontWeight: 400 }}>
+            Tags matching the title and description are added automatically
+            {autoAdded.size > 0 ? ` (added: ${[...autoAdded].join(', ')})` : ''}. Tap a tag to remove it.
+          </span>
           {categorizedTags.map(([cat, tags]) => (
             <div key={cat} style={{ marginBottom: 8 }}>
               <div className="small muted" style={{ marginBottom: 4 }}>{cat}</div>

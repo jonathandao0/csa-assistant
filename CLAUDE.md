@@ -299,7 +299,7 @@ schedule, not the calendar day, so a rain delay or an early start doesn't fool i
   2. the priority weight of their top open ticket;
   3. their next unplayed match in TBA order;
   4. team number.
-- The list is split into "Open tickets" and "Up next on the field". The "Open tickets" heading is a toggle that collapses that list (team count stays visible); the choice is a per-device convenience in `localStorage` (`csa-open-tickets-collapsed`) so it survives tab switches.
+- The list is split into "Open tickets" and "Up next on the field". **Teams with open tickets appear in both** (owner request): "Up next" lists every team, ordered by next match under the Priority sort (from the same re-sort snapshot, reversed for ascending), or in the chosen sort's order otherwise; the count badge marks the ones with open tickets. The "Open tickets" heading is a toggle that collapses that list (team count stays visible); the choice is a per-device convenience in `localStorage` (`csa-open-tickets-collapsed`) so it survives tab switches.
 - Each row's "Next: Q17" match label is bold and colored by the team's alliance in that match (`.alliance.red/.blue`, CSS vars `--alliance-red`/`--alliance-blue`, lighter in dark mode).
 - Time estimates use Nexus `estimatedQueueTime` when available, otherwise TBA `predicted_time` or `time`.
 

@@ -339,12 +339,21 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
           <span className="hint">Lists this team's whole schedule. Choose “Other” for a practice match TBA doesn't know about.</span>
         </label>
 
-        <label className="field">
-          <span>Resolution notes</span>
-          <textarea className="input" style={{ minHeight: 72 }} value={form.resolution}
+        <div className="field">
+          <div className="inline" style={{ justifyContent: 'space-between' }}>
+            <label htmlFor="ticket-resolution" style={{ fontWeight: 600, fontSize: '0.9rem' }}>Resolution notes</label>
+            <button type="button" className="btn" style={{ minHeight: 36 }} disabled={!form.resolution.trim()}
+              onClick={async () => {
+                await copyText(form.resolution);
+                toast('Resolution notes copied');
+              }}>
+              <Icon name="copy" size={18} /> Copy
+            </button>
+          </div>
+          <textarea id="ticket-resolution" className="input" style={{ minHeight: 72 }} value={form.resolution}
             onChange={(e) => set({ resolution: e.target.value })}
             placeholder="What fixed it, or what to try next time" />
-        </label>
+        </div>
 
         {error && <p className="error">{error}</p>}
         <button className="btn primary block" onClick={save}>{isNew ? 'Create ticket' : 'Save changes'}</button>

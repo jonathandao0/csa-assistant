@@ -23,7 +23,7 @@ import {
 } from '../lib/logic.js';
 import { parseNexusMessage, stashDraft } from '../lib/nexusImport.js';
 import { nav } from '../lib/router.js';
-import { setNexusEventKey, syncEvent } from '../lib/sync.js';
+import { applyNexusReadiness, setNexusEventKey, syncEvent } from '../lib/sync.js';
 import { downloadBlob, toast } from '../lib/util.js';
 
 /** Loads everything an event screen needs and derives per-team status. */
@@ -34,6 +34,15 @@ export function useEventContext(eventKey) {
     return all.filter((r) => r.eventKey === eventKey);
   }, [eventKey]);
   const tickets = useLive(() => db.byIndex('tickets', 'eventKey', eventKey), [eventKey]);
+
+  // Apply Nexus inspection status whenever an event's saved data loads, not only right after
+  // a sync — so data already on the device (e.g. fetched before an app update) counts too.
+  // Idempotent: each item is applied once per team (readiness.nexusApplied).
+  const nexusInspection = event?.nexus?.inspection;
+  useEffect(() => {
+    if (event && nexusInspection) applyNexusReadiness(event).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventKey, nexusInspection]);
 
   return useMemo(() => {
     if (event === undefined || !readinessList || !tickets) return { loading: true };

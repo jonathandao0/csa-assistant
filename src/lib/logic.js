@@ -292,12 +292,21 @@ const RADIO_NOT = /\bnot\b|\bno\b|fail|pending|waiting|false|incomplete/i;
 
 /** Nexus's inspection payload, keyed by team number. The exact shape isn't documented
  *  anywhere we could reach, so this accepts the likely ones: `{ "254": {status, ...} }`,
- *  `{ "254": "Passed" }`, an array of `{team|teamNumber, status, ...}`, or either of those
- *  wrapped in `{teams: ...}` / `{inspections: ...}`. */
-function inspectionByTeam(raw) {
+ *  `{ "254": "Passed" }`, an array of `{team|teamNumber, status, ...}`, statuses mapped to
+ *  team lists (`{ "Passed": [254, 1678], "Not started": [...] }`), or any of those wrapped in
+ *  `{teams: ...}` / `{inspections: ...}`. Exported for the Nexus data check panel. */
+export function inspectionByTeam(raw) {
   if (!raw || typeof raw !== 'object') return {};
   const inner = raw.teams ?? raw.inspections ?? raw.inspection ?? raw;
   const out = {};
+  // Status → list of teams.
+  if (!Array.isArray(inner) && Object.values(inner).length
+      && Object.values(inner).every((v) => Array.isArray(v) && v.every((t) => /^(frc)?\d+$/i.test(String(t))))) {
+    for (const [status, list] of Object.entries(inner)) {
+      for (const t of list) out[Number(String(t).replace(/^frc/i, ''))] = { status };
+    }
+    return out;
+  }
   const entries = Array.isArray(inner)
     ? inner.map((v) => [v?.team ?? v?.teamNumber ?? v?.number, v])
     : Object.entries(inner);
@@ -314,7 +323,8 @@ function inspectionByTeam(raw) {
 export function nexusReadiness(event, team) {
   const rec = inspectionByTeam(event?.nexus?.inspection)[team];
   if (!rec) return { inspectionStatus: null, inspectionPassed: false, radio: undefined };
-  const status = rec.status ?? rec.inspectionStatus ?? rec.state ?? null;
+  const status = rec.status ?? rec.inspectionStatus ?? rec.state ?? rec.inspection?.status
+    ?? (typeof rec.inspection === 'string' ? rec.inspection : null);
   const statusText = status == null ? '' : String(status);
   const inspectionPassed = rec.passed === true || rec.inspected === true
     || (!!statusText && PASSED.test(statusText) && !NOT_PASSED.test(statusText));

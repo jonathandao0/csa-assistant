@@ -80,7 +80,12 @@ export async function syncEvent(eventKey) {
       ])
     : [{}, {}, {}, {}];
 
-  const nexusError = [map, pits, live].find((r) => r.error)?.error ?? null;
+  const nexusError = [map, pits, live, inspection].find((r) => r.error)?.error ?? null;
+  // What each Nexus endpoint returned this time, for the Nexus data check panel.
+  const describe = (r) => (r.error ? `error: ${r.error}` : r.value == null ? 'no data' : 'ok');
+  const nexusCheck = hasNexusKey
+    ? { at: Date.now(), code: nexusCode, map: describe(map), pits: describe(pits), live: describe(live), inspection: describe(inspection) }
+    : existing?.nexus?.check ?? null;
   if (nexusError) warnings.push(`FRC Nexus data wasn't updated: ${nexusError}`);
   const tbaFields = tbaOk ? {
     name: ev.name,
@@ -120,6 +125,7 @@ export async function syncEvent(eventKey) {
       live: live.value ?? existing?.nexus?.live ?? null,
       inspection: inspection.value ?? existing?.nexus?.inspection ?? null,
       error: nexusError,
+      check: nexusCheck,
     },
     dayOverride: existing?.dayOverride ?? null,
     phaseOverride: existing?.phaseOverride ?? null,
@@ -138,7 +144,7 @@ export async function syncEvent(eventKey) {
 /** Checks off radio/inspection for teams Nexus reports as done. Each item is applied once
  *  per team (remembered in `readiness.nexusApplied`), so if you uncheck something Nexus
  *  marked, a later refresh won't tick it again. Never unchecks anything. */
-async function applyNexusReadiness(event) {
+export async function applyNexusReadiness(event) {
   const records = Object.fromEntries(
     (await db.all('readiness')).filter((r) => r.eventKey === event.key).map((r) => [r.team, r]),
   );

@@ -75,7 +75,9 @@ export default function TeamPage({ eventKey, number }) {
                 <input type="checkbox" checked={!!r?.[k]} onChange={() => toggleReadiness(eventKey, number, k, r)} />
                 <span style={{ flex: 1 }}>{label}</span>
                 {k === 'inspection' && nx.inspectionStatus && (
-                  <span className="small muted">Nexus: {nx.inspectionStatus}</span>
+                  <span className="small muted">
+                    Nexus: {nx.inspectionStatus}{nx.inspectionPassed ? '' : ' (not counted as passed)'}
+                  </span>
                 )}
                 {k === 'radio' && nx.radio !== undefined && (
                   <span className="small muted">Nexus: {nx.radio ? 'done' : 'not yet'}</span>

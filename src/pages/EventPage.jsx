@@ -612,9 +612,18 @@ function MatchPriorities({ ctx, sortBy, sortDir, resortToken }) {
             <div className="row-title">{r.open[0]?.title ?? r.t.nickname}</div>
             <div className="row-sub">
               {r.open.length > 1 ? `+${r.open.length - 1} more open · ` : ''}
-              {r.next
-                ? `Next: ${matchLabel(r.next)}${time ? ` · ${time.kind === 'queue' ? 'queue' : 'start'} ~${formatClock(time.ms)}` : ''}${time?.status ? ` · ${time.status}` : ''}`
-                : 'No more scheduled matches'}
+              {r.next ? (
+                <>
+                  Next:{' '}
+                  {/* Colored by the team's alliance in that match. */}
+                  <span className={`alliance ${r.next.red.includes(r.t.number) ? 'red' : 'blue'}`}
+                    title={`${r.next.red.includes(r.t.number) ? 'Red' : 'Blue'} alliance`}>
+                    {matchLabel(r.next)}
+                  </span>
+                  {time ? ` · ${time.kind === 'queue' ? 'queue' : 'start'} ~${formatClock(time.ms)}` : ''}
+                  {time?.status ? ` · ${time.status}` : ''}
+                </>
+              ) : 'No more scheduled matches'}
             </div>
           </div>
           {r.open.length > 0 && <span className="count-badge">{r.open.length}</span>}

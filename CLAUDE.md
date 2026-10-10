@@ -300,6 +300,7 @@ schedule, not the calendar day, so a rain delay or an early start doesn't fool i
   3. their next unplayed match in TBA order;
   4. team number.
 - The list is split into "Open tickets" and "Up next on the field". The "Open tickets" heading is a toggle that collapses that list (team count stays visible); the choice is a per-device convenience in `localStorage` (`csa-open-tickets-collapsed`) so it survives tab switches.
+- Each row's "Next: Q17" match label is bold and colored by the team's alliance in that match (`.alliance.red/.blue`, CSS vars `--alliance-red`/`--alliance-blue`, lighter in dark mode).
 - Time estimates use Nexus `estimatedQueueTime` when available, otherwise TBA `predicted_time` or `time`.
 
 **Last match on a new ticket.** Auto-filled from the team's most recent played TBA match. This stops once the user edits the field.

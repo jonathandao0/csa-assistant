@@ -21,6 +21,8 @@
   --st-ignored: #16212c;
   --st-ignored-ink: #ffffff;
   --st-empty: #c9d1d9;
+  --alliance-red: #c62828;
+  --alliance-blue: #1565c0;
 
   --font: 'Barlow', system-ui, sans-serif;
   --font-num: 'Barlow Condensed', 'Arial Narrow', sans-serif;
@@ -46,6 +48,8 @@
     --st-ignored: #000000;
     --st-ignored-ink: #e6ebf0;
     --st-empty: #3a4a58;
+    --alliance-red: #ff7a7a;
+    --alliance-blue: #74b0ff;
     color-scheme: dark;
   }
 }
@@ -63,6 +67,8 @@
   --st-ignored: #000000;
   --st-ignored-ink: #e6ebf0;
   --st-empty: #3a4a58;
+  --alliance-red: #ff7a7a;
+  --alliance-blue: #74b0ff;
   color-scheme: dark;
 }
 
@@ -409,6 +415,17 @@ button.mark:not(.done) {
 @keyframes sync-pulse {
   from { opacity: 1; }
   to { opacity: 0.35; }
+}
+
+/* Match label tinted by the team's alliance (Priority list "Next: Q17"). */
+.alliance {
+  font-weight: 700;
+}
+.alliance.red {
+  color: var(--alliance-red);
+}
+.alliance.blue {
+  color: var(--alliance-blue);
 }
 
 /* ---------- Pills & chips ---------- */

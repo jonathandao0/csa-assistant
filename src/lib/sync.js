@@ -1,6 +1,6 @@
 import { db, getSetting, setSetting } from './db.js';
 import { tba, nexus } from './api.js';
-import { nexusReadiness } from './logic.js';
+import { nexusReadiness, withReadinessRules } from './logic.js';
 
 const LEVEL_ORDER = { qm: 1, ef: 2, qf: 3, sf: 4, f: 5 };
 
@@ -158,7 +158,7 @@ async function applyNexusReadiness(event) {
       next[item] = true;
       touched = true;
     }
-    if (touched) changed.push({ ...next, updatedAt: Date.now() });
+    if (touched) changed.push(withReadinessRules(prev, { ...next, updatedAt: Date.now() }));
   }
   if (changed.length) await db.putMany('readiness', changed);
 }

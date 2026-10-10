@@ -19,6 +19,7 @@ import {
   sortTickets,
   teamColor,
   ticketYear,
+  withReadinessRules,
 } from '../lib/logic.js';
 import { parseNexusMessage, stashDraft } from '../lib/nexusImport.js';
 import { nav } from '../lib/router.js';
@@ -52,7 +53,7 @@ export function useEventContext(eventKey) {
 export async function toggleReadiness(eventKey, team, item, current) {
   const id = `${eventKey}:${team}`;
   const prev = current ?? { id, eventKey, team, radio: false, inspection: false, field: false };
-  await db.put('readiness', { ...prev, [item]: !prev[item], updatedAt: Date.now() });
+  await db.put('readiness', withReadinessRules(prev, { ...prev, [item]: !prev[item], updatedAt: Date.now() }));
 }
 
 /** Marks a team as not present so it always shows black and drops out of the priority list. */

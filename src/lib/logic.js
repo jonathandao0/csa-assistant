@@ -273,6 +273,16 @@ export function ticketToText(ticket) {
   return lines.join('\n');
 }
 
+// ---------- Readiness rules ----------
+
+/** A flashed radio is a prerequisite for passing inspection, so whenever inspection becomes
+ *  checked (by hand or from Nexus) radio is checked too. Unchecking inspection leaves radio
+ *  as it was, and radio can still be unchecked by hand afterwards. */
+export function withReadinessRules(prev, next) {
+  if (next.inspection && !prev?.inspection) return { ...next, radio: true };
+  return next;
+}
+
 // ---------- Readiness from Nexus ----------
 
 const PASSED = /pass|complete|inspected|approved|done/i;

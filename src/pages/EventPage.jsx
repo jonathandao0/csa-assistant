@@ -644,28 +644,32 @@ function TeamsTab({ ctx }) {
         value={q} onChange={(e) => setQ(e.target.value)} aria-label="Filter teams" />
       <ul className="row-list sheet">
         {list.map((t) => (
-          <li key={t.number} className="row" style={{ padding: 0 }}>
-            <button className="row" style={{ flex: 1, minWidth: 0, border: 0 }}
-              onClick={() => nav(`/event/${event.key}/team/${t.number}`)}>
-              <TeamBox number={t.number} color={colorFor(t.number)} />
-              <div className="row-main">
-                <div className="row-title">{t.nickname}</div>
-                <div className="row-sub">
-                  {pits[t.number] ? `Pit ${pits[t.number]} · ` : ''}
-                  {[t.city, t.stateProv].filter(Boolean).join(', ')}
+          <li key={t.number} className="row team-row" style={{ padding: 0 }}>
+            <div className="team-row-top">
+              <button className="row" style={{ flex: 1, minWidth: 0, border: 0 }}
+                onClick={() => nav(`/event/${event.key}/team/${t.number}`)}>
+                <TeamBox number={t.number} color={colorFor(t.number)} />
+                <div className="row-main">
+                  <div className="row-title">{t.nickname}</div>
+                  <div className="row-sub">
+                    {pits[t.number] ? `Pit ${pits[t.number]} · ` : ''}
+                    {[t.city, t.stateProv].filter(Boolean).join(', ')}
+                  </div>
                 </div>
-                <div style={{ marginTop: 5 }}>
-                  <ReadinessMarks readiness={readiness[t.number]} />
-                </div>
-              </div>
-              {openByTeam[t.number]?.length > 0 && (
-                <span className="count-badge" title="Unresolved tickets">{openByTeam[t.number].length}</span>
-              )}
-            </button>
-            <button className="icon-btn" aria-label={`Flag team ${t.number} for follow-up`}
-              onClick={() => nav(`/event/${event.key}/ticket/followup/${t.number}`)}>
-              <Icon name="flag" size={18} />
-            </button>
+                {openByTeam[t.number]?.length > 0 && (
+                  <span className="count-badge" title="Unresolved tickets">{openByTeam[t.number].length}</span>
+                )}
+              </button>
+              <button className="icon-btn" aria-label={`Flag team ${t.number} for follow-up`}
+                onClick={() => nav(`/event/${event.key}/ticket/followup/${t.number}`)}>
+                <Icon name="flag" size={18} />
+              </button>
+            </div>
+            {/* Outside the row's button so each mark can be tapped on its own. */}
+            <div className="team-row-marks">
+              <ReadinessMarks readiness={readiness[t.number]}
+                onToggle={(k) => toggleReadiness(event.key, t.number, k, readiness[t.number])} />
+            </div>
           </li>
         ))}
       </ul>

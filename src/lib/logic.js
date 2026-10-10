@@ -272,3 +272,54 @@ export function ticketToText(ticket) {
   lines.push('', 'Resolution notes:', ticket.resolution?.trim() || '(none)');
   return lines.join('\n');
 }
+
+// ---------- Readiness from Nexus ----------
+
+const PASSED = /pass|complete|inspected|approved|done/i;
+const NOT_PASSED = /\bnot\b|fail|re-?inspect|pending|waiting|progress|incomplete/i;
+const RADIO_DONE = /program|flash|complete|done|pass|yes|true|configured/i;
+const RADIO_NOT = /\bnot\b|\bno\b|fail|pending|waiting|false|incomplete/i;
+
+/** Nexus's inspection payload, keyed by team number. The exact shape isn't documented
+ *  anywhere we could reach, so this accepts the likely ones: `{ "254": {status, ...} }`,
+ *  `{ "254": "Passed" }`, an array of `{team|teamNumber, status, ...}`, or either of those
+ *  wrapped in `{teams: ...}` / `{inspections: ...}`. */
+function inspectionByTeam(raw) {
+  if (!raw || typeof raw !== 'object') return {};
+  const inner = raw.teams ?? raw.inspections ?? raw.inspection ?? raw;
+  const out = {};
+  const entries = Array.isArray(inner)
+    ? inner.map((v) => [v?.team ?? v?.teamNumber ?? v?.number, v])
+    : Object.entries(inner);
+  for (const [k, v] of entries) {
+    const n = Number(String(k ?? '').replace(/^frc/i, ''));
+    if (n) out[n] = typeof v === 'string' ? { status: v } : v ?? {};
+  }
+  return out;
+}
+
+/** What Nexus says about a team's readiness: inspection status text, whether that counts
+ *  as passed, and radio status if (and only if) the payload has a radio field — otherwise
+ *  `radio` is undefined and nothing is inferred. */
+export function nexusReadiness(event, team) {
+  const rec = inspectionByTeam(event?.nexus?.inspection)[team];
+  if (!rec) return { inspectionStatus: null, inspectionPassed: false, radio: undefined };
+  const status = rec.status ?? rec.inspectionStatus ?? rec.state ?? null;
+  const statusText = status == null ? '' : String(status);
+  const inspectionPassed = rec.passed === true || rec.inspected === true
+    || (!!statusText && PASSED.test(statusText) && !NOT_PASSED.test(statusText));
+  let radio;
+  for (const [key, val] of Object.entries(rec)) {
+    if (!/radio/i.test(key)) continue;
+    if (typeof val === 'boolean') radio = val;
+    else if (val != null && typeof val !== 'object') {
+      const s = String(val);
+      radio = RADIO_DONE.test(s) && !RADIO_NOT.test(s);
+    } else if (val && typeof val === 'object') {
+      const s = String(val.status ?? val.state ?? '');
+      radio = val.programmed === true || val.done === true || (!!s && RADIO_DONE.test(s) && !RADIO_NOT.test(s));
+    }
+    break;
+  }
+  return { inspectionStatus: statusText || null, inspectionPassed, radio };
+}

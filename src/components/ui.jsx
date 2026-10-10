@@ -67,15 +67,24 @@ export function TeamBox({ number, color = 'none', large, onClick }) {
   );
 }
 
-export function ReadinessMarks({ readiness }) {
+/** Radio / inspection / field status. With `onToggle` each mark is a large (1.5x) button
+ *  that checks the item on or off, for tapping straight from a list on a phone. */
+export function ReadinessMarks({ readiness, onToggle }) {
   return (
-    <div className="marks" aria-label="Readiness">
-      {READINESS_ITEMS.map(([k, full, short]) => (
-        <span key={k} className={`mark${readiness?.[k] ? ' done' : ''}`} title={full}>
-          {readiness?.[k] ? '✓ ' : ''}
-          {short}
-        </span>
-      ))}
+    <div className={`marks${onToggle ? ' lg' : ''}`} aria-label="Readiness">
+      {READINESS_ITEMS.map(([k, full, short]) => {
+        const done = !!readiness?.[k];
+        const label = <>{done ? '✓ ' : ''}{short}</>;
+        return onToggle ? (
+          <button key={k} type="button" className={`mark${done ? ' done' : ''}`} title={full}
+            aria-pressed={done} aria-label={`${full}: ${done ? 'done' : 'not done'}`}
+            onClick={() => onToggle(k)}>
+            {label}
+          </button>
+        ) : (
+          <span key={k} className={`mark${done ? ' done' : ''}`} title={full}>{label}</span>
+        );
+      })}
     </div>
   );
 }

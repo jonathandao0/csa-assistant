@@ -1,5 +1,6 @@
 import { db, getSetting, setSetting } from './db.js';
 import { tba, nexus } from './api.js';
+import { nexusReadiness } from './logic.js';
 
 const LEVEL_ORDER = { qm: 1, ef: 2, qf: 3, sf: 4, f: 5 };
 
@@ -127,10 +128,39 @@ export async function syncEvent(eventKey) {
     fetchedAt: Date.now(),
   };
   await db.put('events', record);
+  if (hasNexusKey) await applyNexusReadiness(record);
 
   // Warm robot photos in the background so they're available offline.
   if (tbaOk) prefetchMedia(record).catch(() => {});
   return { ...record, warnings };
+}
+
+/** Checks off radio/inspection for teams Nexus reports as done. Each item is applied once
+ *  per team (remembered in `readiness.nexusApplied`), so if you uncheck something Nexus
+ *  marked, a later refresh won't tick it again. Never unchecks anything. */
+async function applyNexusReadiness(event) {
+  const records = Object.fromEntries(
+    (await db.all('readiness')).filter((r) => r.eventKey === event.key).map((r) => [r.team, r]),
+  );
+  const changed = [];
+  for (const { number } of event.teams) {
+    const nx = nexusReadiness(event, number);
+    const due = { radio: nx.radio === true, inspection: nx.inspectionPassed };
+    const prev = records[number] ?? {
+      id: `${event.key}:${number}`, eventKey: event.key, team: number, radio: false, inspection: false, field: false,
+    };
+    const applied = prev.nexusApplied ?? {};
+    const next = { ...prev, nexusApplied: { ...applied } };
+    let touched = false;
+    for (const item of ['radio', 'inspection']) {
+      if (!due[item] || applied[item]) continue;
+      next.nexusApplied[item] = true;
+      next[item] = true;
+      touched = true;
+    }
+    if (touched) changed.push({ ...next, updatedAt: Date.now() });
+  }
+  if (changed.length) await db.putMany('readiness', changed);
 }
 
 async function prefetchMedia(event) {

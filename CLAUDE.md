@@ -53,7 +53,7 @@ from @fontsource. Plain JavaScript and JSX, no TypeScript.
 | 3 | Hosting | Local development now, GitHub Pages later. |
 | 4 | Nexus | The owner has a Nexus API key and uses the official API. |
 | 5 | Pit map | Render from **Nexus map coordinates**. |
-| 6 | Readiness | All 3 items are checked off **manually**: radio flashed, inspection passed, connected to field / played a practice match. |
+| 6 | Readiness | 3 items: radio flashed, inspection passed, connected to field / played a practice match. Originally all manual; the owner later asked for **radio and inspection to be checked off automatically from Nexus data** (see "Readiness from Nexus"). Field stays manual. |
 | 7 | Colors | Red = 0 of 3, orange = 1–2 of 3, green = 3 of 3. **Day 1:** an unresolved ticket does NOT change the color. **Days 2 and 3:** an unresolved ticket turns the team **yellow**. |
 | 8 | Event day | From TBA `start_date`. **Districts (event_type 1) = 2 days, everything else = 3 days.** |
 | 9 | Days 2–3 priority | Teams with open tickets rank first, then order by next match. |
@@ -68,7 +68,8 @@ the owner asks otherwise:
 
 - a manual **day override** on the priorities tab;
 - an optional **resolution notes** field on tickets;
-- inline Nexus inspection status and "played Qn" hints next to the readiness checkboxes (they are hints only; nothing is auto-checked);
+- inline Nexus inspection/radio status and "played Qn" hints next to the team page's readiness checkboxes;
+- the Teams tab's Radio / Insp. / Field marks are 1.5x-size buttons (`ReadinessMarks` with `onToggle`, `.marks.lg`) that toggle the item directly, sitting outside the row's open-team button;
 - a "find team" highlight on the pit map;
 - removing an event from the list keeps its tickets, so team history survives;
 - **removing an event from the Home screen** as well as from the event page's Tickets tab;
@@ -139,7 +140,7 @@ between linked tickets remounts the page and resets the form.
 |---|---|---|
 | `settings` | out-of-line key | `tbaKey`, `nexusKey`, `nexusBase`, `eventIndex:<year>` → `{fetchedAt, events[]}` |
 | `events` | `key` | `{key, name, shortName, year, eventType, startDate, endDate, city, stateProv, country, teams[], matches[], nexus:{enabled, map, pits, live, inspection, error}, nexusEventKey, dayOverride, phaseOverride, addedAt, fetchedAt}` |
-| `readiness` | `id = "<eventKey>:<team>"` | `{eventKey, team, radio, inspection, field, ignored, notes, updatedAt}` |
+| `readiness` | `id = "<eventKey>:<team>"` | `{eventKey, team, radio, inspection, field, ignored, notes, nexusApplied:{radio?, inspection?}, updatedAt}` |
 | `tickets` | `id` (uuid); indexes `eventKey`, `team` | `{eventKey, eventName, team:number, title, description, status, priority, tags[], lastMatch, resolution, links[], createdAt, updatedAt, resolvedAt}` |
 | `media` | `id = "<team>:<year>"` | TBA `{photos[] (direct URLs), avatar (data URL), fetchedAt}`, cached for 12 hours |
 | `photos` | `id = "<team>"` | photo taken by the user: `{dataUrl (JPEG, max side 1400px), year, updatedAt}` |
@@ -217,6 +218,12 @@ Changing the schema requires bumping the version in `openDB` and adding an upgra
 - **Nexus event code override** (`nexusEventKey`): Nexus can file an event under a different code than TBA — seen for real with an offseason event, TBA `2026cass` vs. Nexus `2026cael`. `syncEvent()` sends every Nexus request (map, pits, live, inspection) to `nexusEventKey || key`. Set from the "Nexus event code" box on the Pit map tab (on the N/A screen and under a loaded map) via `setNexusEventKey()`, which clears the Nexus data loaded under the old code and re-syncs; an empty value or the TBA key itself resets it to null. Everything else (routes, tickets, Nexus match-label → TBA match-key mapping) keeps using the TBA `key`.
 - Nexus requests use `cache: 'no-store'` and TBA `cache: 'no-cache'`, so a browser HTTP-cache copy can never hide new data. The service worker doesn't cache either API.
 - The Pit map tab's N/A screen shows when Nexus was last checked.
+
+## Readiness from Nexus
+
+- After every sync with a Nexus key, `applyNexusReadiness()` in `sync.js` checks off `inspection` for teams Nexus reports as passed and `radio` for teams Nexus reports as done. It only ever checks items, never unchecks them, and records each one in `readiness.nexusApplied` so it's applied **once per team per item**: if the user unchecks something Nexus marked, later refreshes leave it alone.
+- `nexusReadiness(event, team)` in `logic.js` reads `event.nexus.inspection`. **Its shape is unverified** (no reachable docs), so it accepts `{ "254": {status, ...} }`, `{ "254": "Passed" }`, `{ "frc254": ... }`, an array of `{team|teamNumber, status}`, or those wrapped in `{teams|inspections: ...}`. Passed = status matching pass/complete/inspected/approved/done and not not/fail/reinspect/pending/waiting/progress, or `passed: true`.
+- **Radio:** it's unconfirmed that Nexus reports radio status at all. Radio is only auto-checked if the team's inspection record has a field whose name contains "radio" (boolean, a status string like "Programmed", or `{status}`/`{programmed}`); with no such field nothing is inferred. If the owner sends a real `/inspection` payload, tighten both rules to it.
 
 ## Business rules (in `src/lib/logic.js`)
 

@@ -10,6 +10,7 @@ import {
   lastPlayedMatch,
   matchLabel,
   matchTimeMs,
+  nexusReadiness,
   nexusTimesByMatchKey,
   sortTickets,
   tagCounts,
@@ -39,7 +40,7 @@ export default function TeamPage({ eventKey, number }) {
   const here = sortTickets(seasonTickets.filter((t) => t.eventKey === eventKey));
   const elsewhere = seasonTickets.filter((t) => t.eventKey !== eventKey);
   const pit = event.nexus?.pits?.[number];
-  const inspection = event.nexus?.inspection?.[number];
+  const nx = nexusReadiness(event, number);
 
   return (
     <>
@@ -73,8 +74,11 @@ export default function TeamPage({ eventKey, number }) {
               <label key={k} className="check-row">
                 <input type="checkbox" checked={!!r?.[k]} onChange={() => toggleReadiness(eventKey, number, k, r)} />
                 <span style={{ flex: 1 }}>{label}</span>
-                {k === 'inspection' && inspection && (
-                  <span className="small muted">Nexus: {inspection.status}</span>
+                {k === 'inspection' && nx.inspectionStatus && (
+                  <span className="small muted">Nexus: {nx.inspectionStatus}</span>
+                )}
+                {k === 'radio' && nx.radio !== undefined && (
+                  <span className="small muted">Nexus: {nx.radio ? 'done' : 'not yet'}</span>
                 )}
                 {k === 'field' && lastPlayedMatch(event, number) && (
                   <span className="small muted">Played {matchLabel(lastPlayedMatch(event, number))}</span>

@@ -357,6 +357,35 @@ button.mark:not(.done) {
   color: var(--ink);
   border-style: dashed;
 }
+/* Teams tab: 1.5x the normal mark (0.72rem → 1.08rem) and a full-height tap target. */
+.marks.lg {
+  gap: 8px;
+}
+.marks.lg .mark {
+  font-size: 1.08rem;
+  padding: 6px 14px;
+  min-height: 44px;
+  min-width: 64px;
+  border-radius: 6px;
+}
+.team-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+.team-row-top {
+  display: flex;
+  align-items: center;
+}
+.team-row-marks {
+  /* Line up under the team name, past the team-number box. */
+  padding: 0 14px 12px 90px;
+}
+@media (max-width: 360px) {
+  .team-row-marks {
+    padding-left: 14px;
+  }
+}
 
 /* ---------- Pills & chips ---------- */
 .pill {

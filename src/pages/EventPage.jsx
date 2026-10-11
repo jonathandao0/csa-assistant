@@ -523,6 +523,15 @@ function ReadinessPriorities({ ctx, sortBy, sortDir, resortToken }) {
   );
 }
 
+/** Driver-station order within a match, for sorting teams that share one: Red 1–3 are
+ *  0–2, Blue 1–3 are 3–5 (TBA lists each alliance's teams in station order). */
+function allianceSlot(match, team) {
+  const r = match.red.indexOf(team);
+  if (r >= 0) return r;
+  const b = match.blue.indexOf(team);
+  return b >= 0 ? 3 + b : 9;
+}
+
 // Whether the Priority list's "Open tickets" section is collapsed. A per-device convenience,
 // so it's kept in localStorage (guarded: storage can be blocked) and survives tab switches.
 const OPEN_COLLAPSED_KEY = 'csa-open-tickets-collapsed';
@@ -565,6 +574,7 @@ function MatchPriorities({ ctx, sortBy, sortDir, resortToken }) {
           openCount: open.length,
           topWeight: open.length ? PRIORITY_WEIGHT[open[0].priority] : 0,
           nextIndex: next ? order[next.key] : Infinity,
+          slot: next ? allianceSlot(next, t.number) : 9,
         };
       });
     if (byTeam) {
@@ -579,21 +589,22 @@ function MatchPriorities({ ctx, sortBy, sortDir, resortToken }) {
           (b.hasOpen ? 1 : 0) - (a.hasOpen ? 1 : 0) ||
           b.topWeight - a.topWeight ||
           a.nextIndex - b.nextIndex ||
+          a.slot - b.slot ||
           a.number - b.number,
       );
       if (sortDir === 'asc') base.reverse();
     }
-    return base.map((x) => ({ number: x.number, hasOpen: x.hasOpen, nextIndex: x.nextIndex }));
+    return base.map((x) => ({ number: x.number, hasOpen: x.hasOpen, nextIndex: x.nextIndex, slot: x.slot }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [event.key, sortBy, sortDir, resortToken]);
 
   const rows = rowSnapshot
-    .map(({ number, hasOpen, nextIndex }) => {
+    .map(({ number, hasOpen, nextIndex, slot }) => {
       const t = event.teams.find((tt) => tt.number === number);
       if (!t) return null;
       const open = sortTickets(openByTeam[number] ?? []);
       const next = nextMatch(event, number);
-      return { t, open, next, hasOpen, nextIndex };
+      return { t, open, next, hasOpen, nextIndex, slot };
     })
     .filter(Boolean);
 
@@ -604,7 +615,7 @@ function MatchPriorities({ ctx, sortBy, sortDir, resortToken }) {
   // other sorts it follows that sort's order.
   const rest = byTeam || sortBy !== 'priority'
     ? rows
-    : [...rows].sort((a, b) => a.nextIndex - b.nextIndex || a.t.number - b.t.number);
+    : [...rows].sort((a, b) => a.nextIndex - b.nextIndex || a.slot - b.slot || a.t.number - b.t.number);
   if (!byTeam && sortBy === 'priority' && sortDir === 'asc') rest.reverse();
   const nowQueuing = event.nexus?.live?.nowQueuing;
 

@@ -143,7 +143,7 @@ between linked tickets remounts the page and resets the form.
 |---|---|---|
 | `settings` | out-of-line key | `tbaKey`, `nexusKey`, `nexusBase`, `eventIndex:<year>` → `{fetchedAt, events[]}`, Drive sync: `googleClientId`, `driveConnected`, `driveFileId`, `driveLastSync`, `syncTombstones`, `syncCleared` |
 | `events` | `key` | `{key, name, shortName, year, eventType, startDate, endDate, city, stateProv, country, remapTeams, teams[], matches[], nexus:{enabled, map, pits, live, inspection, error, check:{at, code, map, pits, live, inspection}}, nexusEventKey, dayOverride, phaseOverride, addedAt, fetchedAt}` |
-| `readiness` | `id = "<eventKey>:<team>"` | `{eventKey, team, radio, inspection, field, ignored, notes, nexusApplied:{radio?, inspection?}, updatedAt}` |
+| `readiness` | `id = "<eventKey>:<team>"` | `{eventKey, team, radio, inspection, field, ignored, notes, nexusApplied:{radio?, inspection?}, checkedInFor (match key), updatedAt}` |
 | `tickets` | `id` (uuid); indexes `eventKey`, `team` | `{eventKey, eventName, team:number, title, description, status, priority, tags[], lastMatch, resolution, links[], createdAt, updatedAt, resolvedAt}` |
 | `media` | `id = "<team>:<year>"` | TBA `{photos[] (direct URLs), avatar (data URL), fetchedAt}`, cached for 12 hours |
 | `photos` | `id = "<team>"` | photo taken by the user: `{dataUrl (JPEG, max side 1400px), year, updatedAt}` |
@@ -315,6 +315,7 @@ schedule, not the calendar day, so a rain delay or an early start doesn't fool i
   4. alliance station in that match: Red 1, 2, 3, then Blue 1, 2, 3 (`allianceSlot()` in `EventPage.jsx`, from TBA's station-ordered `red[]`/`blue[]`);
   5. team number.
 - The list is split into "Open tickets" and "Up next on the field". **Teams with open tickets appear in both** (owner request): "Up next" lists every team, ordered by next match then alliance station under the Priority sort (from the same re-sort snapshot, reversed for ascending), or in the chosen sort's order otherwise; the count badge marks the ones with open tickets. The "Open tickets" heading is a toggle that collapses that list (team count stays visible); the choice is a per-device convenience in `localStorage` (`csa-open-tickets-collapsed`) so it survives tab switches.
+- **Check-in box** (owner request): each event-phase row has a "Check in" checkbox (`.checkin-btn`, 52px target) for "I've checked in with this team before their next match". `toggleCheckIn()` in `EventPage.jsx` stores the next match's key in `readiness.checkedInFor`; the box counts as checked only while `checkedInFor === nextMatch(team).key`, so it clears by itself once that match is played (no timer or cleanup write). Shown in both sections; syncs via Drive with readiness.
 - Each row's "Next: Q17" match label is bold and colored by the team's alliance in that match (`.alliance.red/.blue`, CSS vars `--alliance-red`/`--alliance-blue`, lighter in dark mode).
 - Time estimates use Nexus `estimatedQueueTime` when available, otherwise TBA `predicted_time` or `time`.
 

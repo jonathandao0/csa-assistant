@@ -66,6 +66,16 @@ export async function toggleReadiness(eventKey, team, item, current) {
   await db.put('readiness', withReadinessRules(prev, { ...prev, [item]: !prev[item], updatedAt: Date.now() }));
 }
 
+/** Marks (or unmarks) a team as checked in with before `matchKey`, its next match. Stored as
+ *  the match key itself, so it only counts while that match is still the team's next one:
+ *  once the match is played the next match changes and the check clears on its own. */
+export async function toggleCheckIn(eventKey, team, matchKey, current) {
+  const id = `${eventKey}:${team}`;
+  const prev = current ?? { id, eventKey, team, radio: false, inspection: false, field: false };
+  const on = prev.checkedInFor === matchKey;
+  await db.put('readiness', { ...prev, checkedInFor: on ? null : matchKey, updatedAt: Date.now() });
+}
+
 /** Marks a team as not present so it always shows black and drops out of the priority list. */
 export async function setIgnored(eventKey, team, ignored, current) {
   const id = `${eventKey}:${team}`;
@@ -630,6 +640,8 @@ function MatchPriorities({ ctx, sortBy, sortDir, resortToken }) {
 
   const Row = ({ r }) => {
     const time = r.next ? matchTimeMs(r.next, nexusTimes) : null;
+    const rec = readiness[r.t.number];
+    const checkedIn = !!r.next && rec?.checkedInFor === r.next.key;
     return (
       <li className="row" style={{ padding: 0 }}>
         <button className="row" style={{ flex: 1, minWidth: 0, border: 0 }}
@@ -655,6 +667,15 @@ function MatchPriorities({ ctx, sortBy, sortDir, resortToken }) {
           </div>
           {r.open.length > 0 && <span className="count-badge">{r.open.length}</span>}
         </button>
+        {r.next && (
+          <button className={`checkin-btn${checkedIn ? ' on' : ''}`} role="checkbox" aria-checked={checkedIn}
+            aria-label={`Checked in with team ${labels.num(r.t.number)} before ${matchLabel(r.next)}`}
+            title={checkedIn ? `Checked in before ${matchLabel(r.next)}` : `Mark checked in before ${matchLabel(r.next)}`}
+            onClick={() => toggleCheckIn(event.key, r.t.number, r.next.key, rec)}>
+            <span className="checkin-box" aria-hidden="true">{checkedIn ? '✓' : ''}</span>
+            <span className="checkin-label">{checkedIn ? 'Checked' : 'Check in'}</span>
+          </button>
+        )}
         <button className="icon-btn" aria-label={`Flag team ${r.t.number} for follow-up`}
           onClick={() => nav(`/event/${event.key}/ticket/followup/${r.t.number}`)}>
           <Icon name="flag" size={18} />

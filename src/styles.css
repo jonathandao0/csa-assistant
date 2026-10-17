@@ -428,6 +428,46 @@ button.mark:not(.done) {
   color: var(--alliance-blue);
 }
 
+/* Priority list: "checked in before next match" toggle (clears itself once that match is played). */
+.checkin-btn {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 52px;
+  min-height: 52px;
+  padding: 4px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.checkin-box {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 2px solid var(--line);
+  background: var(--surface);
+  font-weight: 700;
+  color: #fff;
+}
+.checkin-btn.on .checkin-box {
+  background: var(--st-ready);
+  border-color: var(--st-ready);
+}
+.checkin-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.checkin-btn.on {
+  color: var(--st-ready);
+}
+
 /* ---------- Pills & chips ---------- */
 .pill {
   display: inline-block;

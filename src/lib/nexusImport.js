@@ -122,12 +122,20 @@ function issuesFrom(text) {
 
 /** Parses a pasted Nexus Slack message into ticket fields. Anything it can't find is left
  *  empty for the user to fill in. */
-export function parseNexusMessage(raw, event) {
+/** A number from the message that isn't on the roster may be a team's custom display number
+ *  (the real number of an offseason placeholder); map it to that roster entry. */
+function resolveLabelled(team, event, labels) {
+  if (!team || !labels || event?.teams?.some((t) => t.number === team)) return team;
+  const hit = event?.teams?.find((t) => labels.renumbered(t.number) && labels.num(t.number) === String(team));
+  return hit ? hit.number : team;
+}
+
+export function parseNexusMessage(raw, event, labels) {
   const text = cleanSlackText(raw);
   // "An FTA has requested a CSA to follow up with team 9999" + "FTA notes:" — a follow-up
   // the FTA is asking for, rather than the team asking for help themselves.
   const fta = /\bFTA\b/.test(text) && /follow[\s-]?up/i.test(text);
-  const team = teamFrom(text, event);
+  const team = resolveLabelled(teamFrom(text, event), event, labels);
   const match = matchFrom(text);
   const issues = issuesFrom(text);
   const pit = pitFrom(text);

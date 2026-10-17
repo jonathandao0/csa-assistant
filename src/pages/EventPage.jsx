@@ -24,6 +24,7 @@ import {
 import { parseNexusMessage, stashDraft } from '../lib/nexusImport.js';
 import { nav } from '../lib/router.js';
 import { applyNexusReadiness, setNexusEventKey, syncEvent } from '../lib/sync.js';
+import { makeLabeler, useTeamLabels } from '../lib/teamLabels.js';
 import { downloadBlob, toast } from '../lib/util.js';
 
 /** Loads everything an event screen needs and derives per-team status. */
@@ -139,7 +140,8 @@ export default function EventPage({ eventKey, tab }) {
     try {
       const { buildEventReport } = await import('../lib/report.js');
       const all = (await db.all('tickets')).filter((t) => ticketYear(t) === event.year);
-      const blob = await buildEventReport(event, ctx.tickets, all, { anonymize });
+      const labels = makeLabeler(await db.all('teamLabels'), event.key);
+      const blob = await buildEventReport(event, ctx.tickets, all, { anonymize, labels });
       downloadBlob(blob, `CSA report ${event.key}${anonymize ? ' (anonymized)' : ''}.docx`);
       toast(anonymize ? 'Anonymized report downloaded' : 'Report downloaded');
     } catch (e) {
@@ -204,11 +206,16 @@ export default function EventPage({ eventKey, tab }) {
 
 function MapTab({ ctx, hasMap, onRetry, syncing }) {
   const { event, colorFor, phaseInfo } = ctx;
+  const labels = useTeamLabels();
   const [find, setFind] = useState('');
   const [findOpen, setFindOpen] = useState(false);
-  const highlight = Number(find) || null;
-  const findSuggestions = find
-    ? event.teams.filter((t) => String(t.number).startsWith(find)).slice(0, 8)
+  // Finds by the real (TBA) number or a custom display number.
+  const findKey = find.trim().toUpperCase();
+  const highlight = findKey
+    ? (event.teams.find((t) => String(t.number) === findKey || labels.num(t.number).toUpperCase() === findKey)?.number ?? null)
+    : null;
+  const findSuggestions = findKey
+    ? event.teams.filter((t) => String(t.number).startsWith(findKey) || labels.num(t.number).toUpperCase().startsWith(findKey)).slice(0, 8)
     : [];
 
   if (!hasMap) {
@@ -253,7 +260,7 @@ function MapTab({ ctx, hasMap, onRetry, syncing }) {
         <div className="combo-wrap">
           <input className="input" inputMode="numeric" placeholder="Find a team on the map"
             value={find}
-            onChange={(e) => { setFind(e.target.value.replace(/\D/g, '')); setFindOpen(true); }}
+            onChange={(e) => { setFind(e.target.value.replace(/[^0-9a-z]/gi, '')); setFindOpen(true); }}
             onFocus={() => setFindOpen(true)}
             onBlur={() => setTimeout(() => setFindOpen(false), 120)}
             aria-label="Find team" />
@@ -262,9 +269,9 @@ function MapTab({ ctx, hasMap, onRetry, syncing }) {
               {findSuggestions.map((t) => (
                 <li key={t.number}>
                   <button className="combo-option" onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => { setFind(String(t.number)); setFindOpen(false); }}>
+                    onClick={() => { setFind(labels.num(t.number)); setFindOpen(false); }}>
                     <TeamBox number={t.number} color={colorFor(t.number)} />
-                    <span className="row-title">{t.nickname}</span>
+                    <span className="row-title">{labels.nick(t.number, t.nickname)}</span>
                   </button>
                 </li>
               ))}
@@ -275,7 +282,7 @@ function MapTab({ ctx, hasMap, onRetry, syncing }) {
           <span className="muted small">Pit {event.nexus.pits[highlight]}</span>
         )}
       </div>
-      <PitMap map={event.nexus.map} colorFor={colorFor} highlight={highlight}
+      <PitMap map={event.nexus.map} colorFor={colorFor} highlight={highlight} labelFor={labels.num}
         teamAddresses={event.nexus?.pits} onSelect={(team) => nav(`/event/${event.key}/team/${team}`)} />
       <Legend phase={phaseInfo.phase} />
       <div className="sheet" style={{ marginTop: 16 }}>
@@ -445,6 +452,7 @@ function PullToResort({ onResort, children }) {
 
 function ReadinessPriorities({ ctx, sortBy, sortDir, resortToken }) {
   const { event, readiness, openByTeam, colorFor } = ctx;
+  const labels = useTeamLabels();
   const nexusTimes = useMemo(() => nexusTimesByMatchKey(event), [event]);
 
   // Snapshot of which teams are pending and in what order. Only recomputed when the sort
@@ -497,7 +505,7 @@ function ReadinessPriorities({ ctx, sortBy, sortDir, resortToken }) {
                 onClick={openTeamPage} onKeyDown={(e) => e.key === 'Enter' && openTeamPage()}>
                 <TeamBox number={t.number} color={colorFor(t.number)} />
                 <div className="row-main">
-                  <div className="row-title">{t.nickname}</div>
+                  <div className="row-title">{labels.nick(t.number, t.nickname)}</div>
                   <div className="row-sub">
                     {next
                       ? `Next: ${matchLabel(next)}${time ? ` · ~${formatClock(time.ms)}` : ''}`
@@ -545,6 +553,7 @@ function readOpenCollapsed() {
 
 function MatchPriorities({ ctx, sortBy, sortDir, resortToken }) {
   const { event, openByTeam, readiness, colorFor } = ctx;
+  const labels = useTeamLabels();
   const nexusTimes = useMemo(() => nexusTimesByMatchKey(event), [event]);
   const [openCollapsed, setOpenCollapsed] = useState(readOpenCollapsed);
   const toggleOpen = () => {
@@ -627,7 +636,7 @@ function MatchPriorities({ ctx, sortBy, sortDir, resortToken }) {
           onClick={() => nav(`/event/${event.key}/team/${r.t.number}`)}>
           <TeamBox number={r.t.number} color={colorFor(r.t.number)} />
           <div className="row-main">
-            <div className="row-title">{r.open[0]?.title ?? r.t.nickname}</div>
+            <div className="row-title">{r.open[0]?.title ?? labels.nick(r.t.number, r.t.nickname)}</div>
             <div className="row-sub">
               {r.open.length > 1 ? `+${r.open.length - 1} more open · ` : ''}
               {r.next ? (
@@ -689,12 +698,14 @@ function MatchPriorities({ ctx, sortBy, sortDir, resortToken }) {
 
 function TeamsTab({ ctx }) {
   const { event, readiness, openByTeam, colorFor, phaseInfo } = ctx;
+  const labels = useTeamLabels();
   const [q, setQ] = useState('');
   const pits = event.nexus?.pits ?? {};
   const list = event.teams.filter((t) => {
     if (!q) return true;
     const s = q.toLowerCase();
-    return String(t.number).startsWith(s) || t.nickname?.toLowerCase().includes(s);
+    return String(t.number).startsWith(s) || labels.num(t.number).toLowerCase().startsWith(s)
+      || t.nickname?.toLowerCase().includes(s) || labels.nick(t.number).toLowerCase().includes(s);
   });
 
   if (!event.teams.length) {
@@ -713,7 +724,7 @@ function TeamsTab({ ctx }) {
                 onClick={() => nav(`/event/${event.key}/team/${t.number}`)}>
                 <TeamBox number={t.number} color={colorFor(t.number)} />
                 <div className="row-main">
-                  <div className="row-title">{t.nickname}</div>
+                  <div className="row-title">{labels.nick(t.number, t.nickname)}</div>
                   <div className="row-sub">
                     {pits[t.number] ? `Pit ${pits[t.number]} · ` : ''}
                     {[t.city, t.stateProv].filter(Boolean).join(', ')}
@@ -752,6 +763,7 @@ const FILTERS = [
 
 function TicketsTab({ ctx, onExport, exporting }) {
   const { event, tickets } = ctx;
+  const labels = useTeamLabels();
   const [importing, setImporting] = useState(false);
   const [filter, setFilter] = useState('all');
   const [q, setQ] = useState('');
@@ -761,6 +773,7 @@ function TicketsTab({ ctx, onExport, exporting }) {
     const s = q.toLowerCase();
     return (
       String(t.team).startsWith(s) ||
+      labels.num(t.team).toLowerCase().startsWith(s) ||
       t.title.toLowerCase().includes(s) ||
       t.tags?.some((tag) => tag.toLowerCase().includes(s))
     );
@@ -811,8 +824,9 @@ function TicketsTab({ ctx, onExport, exporting }) {
 /** Paste a Nexus technical-help request from Slack; shows what was picked out of it, then
  *  opens the ticket form pre-filled so nothing is saved until it's reviewed. */
 function NexusImport({ event, onClose }) {
+  const labels = useTeamLabels();
   const [text, setText] = useState('');
-  const parsed = text.trim() ? parseNexusMessage(text, event) : null;
+  const parsed = text.trim() ? parseNexusMessage(text, event, labels) : null;
   const onRoster = parsed?.team && event.teams.some((t) => t.number === parsed.team);
 
   async function pasteClipboard() {
@@ -846,7 +860,8 @@ function NexusImport({ event, onClose }) {
               <dt>Type</dt><dd>{parsed.kind === 'fta' ? 'FTA follow-up request' : 'Team help request'}</dd>
               <dt>Team</dt>
               <dd>
-                {parsed.team ?? <span className="error">Not found — pick it on the next screen</span>}
+                {parsed.team ? labels.num(parsed.team) : <span className="error">Not found — pick it on the next screen</span>}
+                {parsed.team && labels.renumbered(parsed.team) && <span className="muted"> (listed as {parsed.team})</span>}
                 {parsed.team && !onRoster && <span className="muted"> (not on this event's roster)</span>}
               </dd>
               {parsed.pit && (<><dt>Pit</dt><dd>{parsed.pit}</dd></>)}

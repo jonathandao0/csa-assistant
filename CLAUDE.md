@@ -111,6 +111,7 @@ src/
   lib/theme.js           light/dark preference: applyTheme(), useTheme()
   lib/drive.js           Google sign-in (GIS token) + Drive REST for the sync file
   lib/cloudSync.js       mergeSnapshots(), syncNow(), startAutoSync(), useSyncStatus()
+  lib/teamLabels.js      custom display number/nickname per team: provider, useTeamLabels(), makeLabeler()
   lib/ledCodes.js        static CTRE/REV status-LED reference data (Reference tab)
   components/ui.jsx      Icon, TopBar, TeamBox, ReadinessMarks, StatusPill, TicketRow, Legend, Modal, Toaster
   components/PitMap.jsx  SVG renderer for Nexus map JSON
@@ -136,7 +137,7 @@ public/                  favicon.svg, icons/ (192, 512, maskable 512)
 `TeamPage` and `TicketPage` are keyed by their route parameters in `App.jsx`, so that moving
 between linked tickets remounts the page and resets the form.
 
-## Data model (IndexedDB `csa-assistant`, version 2)
+## Data model (IndexedDB `csa-assistant`, version 3)
 
 | Store | Key | Shape |
 |---|---|---|
@@ -146,6 +147,7 @@ between linked tickets remounts the page and resets the form.
 | `tickets` | `id` (uuid); indexes `eventKey`, `team` | `{eventKey, eventName, team:number, title, description, status, priority, tags[], lastMatch, resolution, links[], createdAt, updatedAt, resolvedAt}` |
 | `media` | `id = "<team>:<year>"` | TBA `{photos[] (direct URLs), avatar (data URL), fetchedAt}`, cached for 12 hours |
 | `photos` | `id = "<team>"` | photo taken by the user: `{dataUrl (JPEG, max side 1400px), year, updatedAt}` |
+| `teamLabels` (v3) | `id = "<scope>:<team>"` | user's custom display label: `{scope ('all' \| eventKey), team (real TBA number), number (display string), nickname, updatedAt}` — see "Custom team numbers / names" |
 
 Details of the `events` store:
 
@@ -222,13 +224,24 @@ Changing the schema requires bumping the version in `openDB` and adding an upgra
 - Nexus requests use `cache: 'no-store'` and TBA `cache: 'no-cache'`, so a browser HTTP-cache copy can never hide new data. The service worker doesn't cache either API.
 - The Pit map tab's N/A screen shows when Nexus was last checked.
 
+## Custom team numbers / names
+
+Owner request: offseason events list placeholder team numbers (e.g. 9971 for 971's B robot), so the user can give any team a custom **display number and/or nickname**, kept per user and persisting across events (synced via Drive like other data).
+
+- **Real number stays the key.** Tickets, readiness, photos, Nexus/TBA lookups and routes all keep the TBA number; only what's shown changes. `lib/teamLabels.js`: `TeamLabelsProvider` (in `App.jsx`, loads the store once and knows the open event from the route) + `useTeamLabels(eventKey?)` → `{get, num(n), nick(n, fallback), renumbered(n)}`; `makeLabeler(records, eventKey)` for non-React code (report).
+- **Scope:** a label applies to all events (default) or one event; an event-only label overrides the all-events one at that event and leaves it alone elsewhere. Saving an all-events label from an event drops that event's override. "Remove" clears only the label in effect (event override first).
+- **Edited** from the team page ("Set/Edit team number / name" → modal). The team page shows "Listed as 9971 · TBA: <nickname> · all events" under a relabelled team.
+- **Shown in:** `TeamBox` (everywhere), team/ticket/pit-map names and numbers, `TicketRow` and ticket numbers (`ticketNumber(ticket, displayNum)` → "971-2"), team-page match partners, ticket copy text (`ticketToText(ticket, labels)` adds "(listed as 9971)"), the Word report (`buildEventReport(..., { labels })`).
+- **Searching by either number:** Teams filter, Tickets search, pit-map find box and the ticket form's Team box accept the custom number too (the ticket form maps a typed custom number to the placeholder team). The Nexus Slack import maps a message's team number to a relabelled placeholder (`parseNexusMessage(raw, event, labels)`).
+- **Anonymized report** also hides custom numbers and custom nicknames (added to the same one-pass pattern).
+
 ## Google Drive sync
 
 Owner asked for cross-platform, cross-device data. Optional, per device, from Settings → Google Drive sync.
 
 - **Auth** (`lib/drive.js`): Google Identity Services token client (script `accounts.google.com/gsi/client`, loaded on demand and preloaded on Settings/Home so the popup opens from the tap), scope `drive.file` only. Client ID from `VITE_GOOGLE_CLIENT_ID` (deploy workflow reads repo variable `GOOGLE_CLIENT_ID`) or the `googleClientId` setting. The access token (~1 h) is kept in `localStorage` (`csa-drive-token`) so reloads don't re-prompt; on expiry/401 auto-sync pauses with status `signin` until a tap re-signs in. Owner setup steps are in the README.
 - **File:** one `CSA Assistant sync.json` in the user's Drive (ID cached in setting `driveFileId`, re-found by name if deleted). Same `{app, stores}` shape as a backup, plus `tombstones`/`cleared`, so Restore backup can read it.
-- **What syncs:** `SYNCED_STORES` in `db.js` = events, readiness, tickets, photos. Not `media` (TBA cache) or `settings` (API keys, per-device prefs).
+- **What syncs:** `SYNCED_STORES` in `db.js` = events, readiness, tickets, photos, teamLabels. Not `media` (TBA cache) or `settings` (API keys, per-device prefs).
 - **Change tracking** (`db.js`): every `db.put`/`putMany` on a synced store stamps `_mod = Date.now()`; `db.del` writes a tombstone (`syncTombstones` setting, `"<store>:<key>" → time`); `db.clear` writes `syncCleared[store]`. Sync applies remote rows with `db.applyRaw()`, which keeps `_mod` and leaves no tombstones.
 - **Merge** (`mergeSnapshots()` in `lib/cloudSync.js`, pure): per record, newest `_mod` wins (falls back to `updatedAt`/`fetchedAt`/`addedAt`; ties keep local); a record is dropped if a tombstone or clear is newer. `syncNow()` = download → merge → write only rows that differ → upload only if the file would change. Concurrent calls share one run.
 - **Auto-sync** (`startAutoSync()`, called from `main.jsx`): on start, 15 s after local DB changes settle, when the app returns to the foreground (if last sync > 1 min ago), and on `online`; only while connected with a live token. The sync's own writes set `applying` so they don't schedule another sync. Status is broadcast as `csa-sync` events (`useSyncStatus()`); Home shows a cloud button (pulses while syncing, dot on error/sign-in) when connected.

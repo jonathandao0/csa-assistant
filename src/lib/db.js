@@ -8,7 +8,8 @@ import { useEffect, useState } from 'react';
 //  tickets    { id, eventKey, eventName, team, title, ... links[] }
 //  media      { id: `${team}:${year}`, photos[], avatar }  (from TBA)
 //  photos     { id: `${team}`, dataUrl, year }            (taken by you)
-const dbPromise = openDB('csa-assistant', 2, {
+//  teamLabels { id: `${scope}:${team}`, scope ('all' | eventKey), team, number, nickname }
+const dbPromise = openDB('csa-assistant', 3, {
   async upgrade(db, oldVersion, newVersion, tx) {
     if (oldVersion < 1) createStores(db);
     // v2: ticket priorities collapsed from low/medium/high/critical to normal/high.
@@ -21,6 +22,8 @@ const dbPromise = openDB('csa-assistant', 2, {
         cursor = await cursor.continue();
       }
     }
+    // v3: user-defined display number/nickname per team (offseason placeholder numbers).
+    if (oldVersion >= 1 && oldVersion < 3) db.createObjectStore('teamLabels', { keyPath: 'id' });
   },
 });
 
@@ -33,16 +36,17 @@ function createStores(db) {
   tickets.createIndex('team', 'team');
   db.createObjectStore('media', { keyPath: 'id' });
   db.createObjectStore('photos', { keyPath: 'id' });
+  db.createObjectStore('teamLabels', { keyPath: 'id' });
 }
 
-export const STORES = ['settings', 'events', 'readiness', 'tickets', 'media', 'photos'];
+export const STORES = ['settings', 'events', 'readiness', 'tickets', 'media', 'photos', 'teamLabels'];
 
 // Stores synced across devices through Google Drive (lib/cloudSync.js). Every normal write
 // to one of these stamps `_mod` (last-modified time, used to pick the newest copy of a
 // record), and every delete leaves a tombstone so the deletion syncs too. `media` is a
 // re-downloadable TBA cache and `settings` holds per-device things (API keys), so neither
 // syncs.
-export const SYNCED_STORES = ['events', 'readiness', 'tickets', 'photos'];
+export const SYNCED_STORES = ['events', 'readiness', 'tickets', 'photos', 'teamLabels'];
 const TOMBSTONES = 'syncTombstones'; // settings key: { "<store>:<key>": deletedAt }
 const CLEARED = 'syncCleared'; // settings key: { <store>: clearedAt }
 

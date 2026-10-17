@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { PRIORITIES, READINESS_ITEMS, TEAM_COLORS, TICKET_STATUS, formatDateTime, ticketNumber } from '../lib/logic.js';
 import { nav } from '../lib/router.js';
+import { useTeamLabels } from '../lib/teamLabels.js';
 
 const paths = {
   back: 'M15.5 4.5 8 12l7.5 7.5',
@@ -55,15 +56,16 @@ export function TopBar({ title, subtitle, back, actions, children }) {
 
 export function TeamBox({ number, color = 'none', large, onClick }) {
   const c = TEAM_COLORS[color];
+  const labels = useTeamLabels();
   const Tag = onClick ? 'button' : 'div';
   return (
     <Tag
       className={`teambox${large ? ' lg' : ''}`}
       style={{ background: c.fill, color: c.text, border: 0 }}
       onClick={onClick}
-      title={c.label}
+      title={labels.renumbered(number) ? `${c.label} · listed as ${number}` : c.label}
     >
-      {number}
+      {labels.num(number)}
     </Tag>
   );
 }
@@ -97,14 +99,16 @@ export function StatusPill({ status }) {
 const prioLabel = Object.fromEntries(PRIORITIES);
 
 export function TicketRow({ ticket, showTeam = true, showEvent = false }) {
+  const labels = useTeamLabels(ticket.eventKey);
+  const num = labels.num(ticket.team);
   return (
     <li>
       <button className="row" onClick={() => nav(`/event/${ticket.eventKey}/ticket/${ticket.id}`)}>
-        {showTeam && <span className="num" style={{ fontSize: '1.2rem', minWidth: 48 }}>{ticket.team}</span>}
+        {showTeam && <span className="num" style={{ fontSize: '1.2rem', minWidth: 48 }}>{num}</span>}
         <div className="row-main">
           <div className="row-title">{ticket.title}</div>
           <div className="row-sub">
-            {ticketNumber(ticket)} · {showEvent ? `${ticket.eventName || ticket.eventKey} · ` : ''}
+            {ticketNumber(ticket, num)} · {showEvent ? `${ticket.eventName || ticket.eventKey} · ` : ''}
             {formatDateTime(ticket.createdAt)}
             {ticket.lastMatch ? ` · after ${ticket.lastMatch}` : ''}
             {ticket.links?.length ? ` · ${ticket.links.length} linked` : ''}

@@ -5,6 +5,7 @@ import Settings from './pages/Settings.jsx';
 import TeamPage from './pages/TeamPage.jsx';
 import TicketPage from './pages/TicketPage.jsx';
 import { useRoute } from './lib/router.js';
+import { TeamLabelsProvider } from './lib/teamLabels.js';
 
 // Routes:
 //   #/                              events you're monitoring
@@ -22,9 +23,11 @@ export default function App() {
     else page = <EventPage eventKey={key} tab={kind === 'tab' ? a : undefined} />;
   }
   return (
-    <div className="app">
-      {page}
-      <Toaster />
-    </div>
+    <TeamLabelsProvider eventKey={section === 'event' ? key : null}>
+      <div className="app">
+        {page}
+        <Toaster />
+      </div>
+    </TeamLabelsProvider>
   );
 }

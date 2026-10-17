@@ -43,7 +43,7 @@ function Arrow({ item }) {
   );
 }
 
-export default function PitMap({ map, colorFor, onSelect, highlight, teamAddresses }) {
+export default function PitMap({ map, colorFor, onSelect, highlight, teamAddresses, labelFor = String }) {
   const [zoom, setZoom] = useState(1);
   const W = map.size?.x ?? 1000;
   const H = map.size?.y ?? 1000;
@@ -116,13 +116,14 @@ export default function PitMap({ map, colorFor, onSelect, highlight, teamAddress
             const b = box(pit);
             const team = pit.team ? Number(pit.team) : (teamByAddress[String(address).trim().toUpperCase()] ?? null);
             const color = team ? TEAM_COLORS[colorFor(team)] : null;
-            const label = team ? String(team) : address;
+            // Display number (a custom label for offseason placeholder numbers, if set).
+            const label = team ? labelFor(team) : address;
             const fs = Math.min(b.h * 0.42, (b.w * 0.88) / (label.length * 0.52));
             const lit = highlight && team === highlight;
             return (
               <g key={address} className={team ? 'pit' : undefined} transform={rot(b)}
                 onClick={team ? () => onSelect(team) : undefined}
-                role={team ? 'button' : undefined} aria-label={team ? `Team ${team}, pit ${address}` : undefined}
+                role={team ? 'button' : undefined} aria-label={team ? `Team ${label}, pit ${address}` : undefined}
                 tabIndex={team ? 0 : undefined}
                 onKeyDown={team ? (e) => e.key === 'Enter' && onSelect(team) : undefined}>
                 <rect x={b.x - b.w / 2 + 3} y={b.y - b.h / 2 + 3} width={b.w - 6} height={b.h - 6} rx="4"

@@ -243,8 +243,8 @@ export function ticketYear(ticket) {
 /** A short, human-friendly identifier like "1005-1" — the team number plus this team's
  *  Nth ticket of the season (assigned once at creation, stable across events). Falls back
  *  to "?" for any ticket created before this field existed. */
-export function ticketNumber(ticket) {
-  return `${ticket.team}-${ticket.seq ?? '?'}`;
+export function ticketNumber(ticket, displayNum = String(ticket.team)) {
+  return `${displayNum}-${ticket.seq ?? '?'}`;
 }
 
 /** The next sequence number for a team's tickets this season, given every ticket on file. */
@@ -257,10 +257,11 @@ export function nextTicketSeq(allTickets, team, year) {
 const priorityLabel = Object.fromEntries(PRIORITIES);
 
 /** Plain-text rendering of a ticket, for copying to the clipboard to paste elsewhere. */
-export function ticketToText(ticket) {
+export function ticketToText(ticket, labels) {
+  const num = labels ? labels.num(ticket.team) : String(ticket.team);
   const lines = [
-    `Ticket ${ticketNumber(ticket)} — ${ticket.title}`,
-    `Team: ${ticket.team}`,
+    `Ticket ${ticketNumber(ticket, num)} — ${ticket.title}`,
+    `Team: ${num}${num !== String(ticket.team) ? ` (listed as ${ticket.team})` : ''}`,
     `Event: ${ticket.eventName || ticket.eventKey}`,
     `Status: ${TICKET_STATUS[ticket.status]?.label ?? ticket.status}    Priority: ${priorityLabel[ticket.priority] ?? ticket.priority}`,
     `Last match: ${ticket.lastMatch || 'N/A'}`,

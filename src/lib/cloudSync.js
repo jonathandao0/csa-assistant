@@ -10,7 +10,7 @@ import { downloadSyncFile, driveConfigured, hasValidToken, signIn, uploadSyncFil
 // syncs ends up with the union of everyone's changes. The file is also a valid backup
 // (same `app`/`stores` shape), so Settings → Restore backup can read it too.
 
-const KEY_FIELD = { events: 'key', readiness: 'id', tickets: 'id', photos: 'id' };
+const KEY_FIELD = { events: 'key', readiness: 'id', tickets: 'id', photos: 'id', teamLabels: 'id' };
 const keyOf = (store, row) => row?.[KEY_FIELD[store]];
 const modOf = (row) => row?._mod ?? row?.updatedAt ?? row?.fetchedAt ?? row?.addedAt ?? 0;
 

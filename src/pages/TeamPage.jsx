@@ -21,6 +21,7 @@ import {
 import { goBack, nav } from '../lib/router.js';
 import { fetchTeamMedia } from '../lib/sync.js';
 import { compressImage, deleteTickets, toast } from '../lib/util.js';
+import { clearTeamLabel, saveTeamLabel, useTeamLabels } from '../lib/teamLabels.js';
 import { setIgnored, toggleReadiness, useEventContext } from './EventPage.jsx';
 
 export default function TeamPage({ eventKey, number }) {
@@ -28,6 +29,8 @@ export default function TeamPage({ eventKey, number }) {
   const allTeamTickets = useLive(() => db.byIndex('tickets', 'team', number), [number]);
   const allTickets = useLive(() => db.all('tickets'), []);
   const events = useLive(() => db.all('events'), []);
+  const labels = useTeamLabels();
+  const [editingLabel, setEditingLabel] = useState(false);
 
   if (ctx.loading || !allTeamTickets || !allTickets || !events) return <Loading />;
   if (ctx.missing) return <TopBar title="Event not found" back={() => nav('/')} />;
@@ -41,21 +44,34 @@ export default function TeamPage({ eventKey, number }) {
   const elsewhere = seasonTickets.filter((t) => t.eventKey !== eventKey);
   const pit = event.nexus?.pits?.[number];
   const nx = nexusReadiness(event, number);
+  const shownNum = labels.num(number);
+  const shownNick = labels.nick(number, team.nickname);
+  const label = labels.get(number);
 
   return (
     <>
-      <TopBar title={`${number} · ${team.nickname ?? ''}`} subtitle={event.shortName}
+      <TopBar title={`${shownNum} · ${shownNick ?? ''}`} subtitle={event.shortName}
         back={() => goBack(`/event/${eventKey}/tab/teams`)} />
       <main className="page">
         <section className="section team-head">
           <div className="team-head-info">
             <TeamBox number={number} color={colorFor(number)} large />
             <div style={{ minWidth: 0 }}>
-              <h2>{team.nickname}</h2>
+              <h2>{shownNick}</h2>
+              {label && (
+                <div className="small muted">
+                  {labels.renumbered(number) ? `Listed as ${number}` : 'Custom name'}
+                  {label.nickname && team.nickname && label.nickname !== team.nickname ? ` · TBA: ${team.nickname}` : ''}
+                  {label.scope === 'all' ? ' · all events' : ' · this event only'}
+                </div>
+              )}
               <div className="muted small">
                 {[team.city, team.stateProv, team.country].filter(Boolean).join(', ')}
               </div>
               {pit && <div className="small" style={{ marginTop: 2 }}><strong>Pit {pit}</strong></div>}
+              <button className="chip" style={{ marginTop: 6 }} onClick={() => setEditingLabel(true)}>
+                {label ? 'Edit team number / name' : 'Set team number / name'}
+              </button>
             </div>
           </div>
           <RobotThumb number={number} year={event.year} />
@@ -140,11 +156,79 @@ export default function TeamPage({ eventKey, number }) {
           </div>
         </section>
       </main>
+      {editingLabel && (
+        <TeamLabelEditor eventKey={eventKey} number={number} tbaNickname={team.nickname} label={label}
+          onClose={() => setEditingLabel(false)} />
+      )}
     </>
   );
 }
 
+/** Custom display number/nickname for a team (offseason events often list placeholder
+ *  numbers). Stored per user and, by default, applies at every event; tickets and readiness
+ *  stay keyed by the real number. */
+function TeamLabelEditor({ eventKey, number, tbaNickname, label, onClose }) {
+  const [num, setNum] = useState(label?.number ?? '');
+  const [nick, setNick] = useState(label?.nickname ?? '');
+  const [scope, setScope] = useState(label && label.scope !== 'all' ? 'event' : 'all');
+
+  async function save(e) {
+    e.preventDefault();
+    await saveTeamLabel({ team: number, eventKey, scope, number: num, nickname: nick });
+    toast(num.trim() || nick.trim() ? 'Team name saved' : 'Custom name removed');
+    onClose();
+  }
+
+  async function reset() {
+    await clearTeamLabel(number, eventKey);
+    toast(label?.scope === 'all' ? 'Custom name removed from all events' : 'Custom name removed for this event');
+    onClose();
+  }
+
+  return (
+    <Modal title={`Team listed as ${number}`} onClose={onClose}>
+      <form className="stack" onSubmit={save}>
+        <p className="small muted" style={{ margin: 0 }}>
+          For offseason placeholder numbers: show this team with its real number or a name you choose.
+          Tickets and readiness stay attached to the team either way.
+        </p>
+        <label className="field">
+          <span>Team number to show</span>
+          <input className="input" value={num} onChange={(e) => setNum(e.target.value.replace(/[^0-9a-z]/gi, '').toUpperCase())}
+            placeholder={String(number)} inputMode="numeric" autoCapitalize="characters" maxLength={6} />
+        </label>
+        <label className="field">
+          <span>Nickname to show</span>
+          <input className="input" value={nick} onChange={(e) => setNick(e.target.value)}
+            placeholder={tbaNickname || `Team ${number}`} maxLength={60} />
+        </label>
+        <div className="field">
+          <span>Applies to</span>
+          <div className="inline" role="radiogroup">
+            <button type="button" className="chip" role="radio" aria-checked={scope === 'all'} aria-pressed={scope === 'all'}
+              onClick={() => setScope('all')}>All events</button>
+            <button type="button" className="chip" role="radio" aria-checked={scope === 'event'} aria-pressed={scope === 'event'}
+              onClick={() => setScope('event')}>This event only</button>
+          </div>
+          <span className="hint" style={{ fontWeight: 400 }}>
+            Use “This event only” if {number} is a placeholder that means a different team at other events.
+          </span>
+        </div>
+        <div className="inline">
+          <button className="btn primary">Save</button>
+          {label && (
+            <button type="button" className="btn" onClick={reset}>
+              {label.scope === 'all' ? 'Remove (all events)' : 'Remove for this event'}
+            </button>
+          )}
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 function MatchesSection({ event, number }) {
+  const labels = useTeamLabels();
   const matches = teamMatches(event, number);
   if (!matches.length) return null;
   const nexusTimes = nexusTimesByMatchKey(event);
@@ -167,7 +251,7 @@ function MatchesSection({ event, number }) {
                 <div className="row-main">
                   <div className="row-title">{alliance} alliance</div>
                   <div className="row-sub">
-                    With {(alliance === 'Red' ? m.red : m.blue).filter((n) => n !== number).join(', ')}
+                    With {(alliance === 'Red' ? m.red : m.blue).filter((n) => n !== number).map(labels.num).join(', ')}
                   </div>
                 </div>
                 {time && <span className="small muted">{time.kind === 'queue' ? 'Queue' : 'Start'} ~{formatClock(time.ms)}</span>}

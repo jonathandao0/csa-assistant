@@ -92,13 +92,16 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /** Team labelling for the report. Anonymized, every team number becomes a random Docker-style
  *  name ("focused_lovelace"), nicknames are dropped, and team numbers or nicknames that turn
  *  up inside ticket text are swapped for the same name. */
-function teamLabeller(event, allTickets, anonymize) {
-  const nickname = Object.fromEntries(event.teams.map((t) => [t.number, t.nickname]));
+function teamLabeller(event, allTickets, anonymize, labels) {
+  const tbaNick = Object.fromEntries(event.teams.map((t) => [t.number, t.nickname]));
+  // Custom display numbers/nicknames (offseason placeholders) take the place of TBA's.
+  const num = (n) => (labels ? labels.num(n) : String(n));
+  const nick = (n) => (labels ? labels.nick(n, tbaNick[n]) : tbaNick[n]);
   if (!anonymize) {
     return {
-      team: (n) => `Team ${n}`,
-      id: (n) => String(n),
-      withNick: (n) => `Team ${n}${nickname[n] ? ` (${nickname[n]})` : ''}`,
+      team: (n) => `Team ${num(n)}`,
+      id: (n) => num(n),
+      withNick: (n) => `Team ${num(n)}${nick(n) ? ` (${nick(n)})` : ''}`,
       scrub: (text) => text,
     };
   }
@@ -107,10 +110,15 @@ function teamLabeller(event, allTickets, anonymize) {
   // Nicknames long enough not to match ordinary words, longest first so "Robo Rams 2" wins
   // over "Robo Rams". One combined pattern replaced in a single pass, so an inserted name is
   // never re-matched by a later swap.
+  // TBA nicknames and any custom nickname or custom number go in the same pattern, so a
+  // team typed into a ticket under its custom number ("971" for placeholder 9971) is hidden too.
   const byNick = new Map();
   for (const n of numbers) {
-    const nick = nickname[n]?.trim();
-    if (nick && nick.length >= 4 && !/^\d+$/.test(nick)) byNick.set(nick.toLowerCase(), names.get(n));
+    for (const name of [tbaNick[n], labels?.get(n)?.nickname]) {
+      const v = name?.trim();
+      if (v && v.length >= 4 && !/^\d+$/.test(v)) byNick.set(v.toLowerCase(), names.get(n));
+    }
+    if (labels?.renumbered(n)) byNick.set(labels.num(n).toLowerCase(), names.get(n));
   }
   const nickAlts = [...byNick.keys()].sort((x, y) => y.length - x.length).map(escapeRe);
   const pattern = new RegExp(
@@ -131,9 +139,9 @@ function teamLabeller(event, allTickets, anonymize) {
 
 /** Builds the event summary as a .docx Blob. With `anonymize`, team identities are replaced
  *  by random Docker-style names (see teamLabeller). */
-export async function buildEventReport(event, eventTickets, allTickets, { anonymize = false } = {}) {
+export async function buildEventReport(event, eventTickets, allTickets, { anonymize = false, labels = null } = {}) {
   const allById = Object.fromEntries(allTickets.map((t) => [t.id, t]));
-  const label = teamLabeller(event, allTickets, anonymize);
+  const label = teamLabeller(event, allTickets, anonymize, labels);
   const tickets = [...eventTickets].sort((a, b) => a.createdAt - b.createdAt);
 
   const count = (s) => tickets.filter((t) => t.status === s).length;

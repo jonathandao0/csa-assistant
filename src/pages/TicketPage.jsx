@@ -18,6 +18,7 @@ import {
 } from '../lib/logic.js';
 import { goBack, nav } from '../lib/router.js';
 import { clearDraft, readDraft } from '../lib/nexusImport.js';
+import { useTeamLabels } from '../lib/teamLabels.js';
 import { copyText, toast } from '../lib/util.js';
 
 const CUSTOM_MATCH = '__custom__';
@@ -43,6 +44,7 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
   const event = useLive(() => db.get('events', eventKey), [eventKey]);
   const existing = useLive(() => (isNew ? Promise.resolve(null) : db.get('tickets', id)), [id]);
   const allTickets = useLive(() => db.all('tickets'), []);
+  const labels = useTeamLabels(eventKey);
   const [form, setForm] = useState(null);
   const [teamText, setTeamText] = useState('');
   const [teamOpen, setTeamOpen] = useState(false);
@@ -94,10 +96,10 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
         if (last) f.lastMatch = matchLabel(last);
       }
       setForm(f);
-      setTeamText(f.team ? String(f.team) : '');
+      setTeamText(f.team ? labels.num(f.team) : '');
     } else if (existing) {
       setForm({ ...existing, links: existing.links ?? [], tags: existing.tags ?? [] });
-      setTeamText(existing.team ? String(existing.team) : '');
+      setTeamText(existing.team ? labels.num(existing.team) : '');
       setMatchTouched(true);
     }
   }, [existing, event, form, isNew, isFollowUp, isImport, eventKey, presetTeam]);
@@ -158,7 +160,10 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
 
   function changeTeam(value) {
-    const team = value ? Number(value) : '';
+    // Typed text can be a team's custom display number (offseason placeholder) or its real one.
+    const v = String(value ?? '').trim().toUpperCase();
+    const byLabel = v && teams.find((t) => labels.renumbered(t.number) && labels.num(t.number).toUpperCase() === v);
+    const team = byLabel ? byLabel.number : /^\d+$/.test(v) ? Number(v) : '';
     const patch = { team };
     if (!matchTouched && event && team) {
       const last = lastPlayedMatch(event, team);
@@ -169,14 +174,20 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
   }
 
   function pickTeam(number) {
-    setTeamText(String(number));
+    setTeamText(labels.num(number));
     setTeamOpen(false);
     changeTeam(String(number));
   }
 
-  const teamInfo = teams.find((t) => t.number === form.team)
-    ?? (form.team ? { number: form.team, nickname: "Not on this event's roster" } : null);
-  const teamSuggestions = teamText ? teams.filter((t) => String(t.number).startsWith(teamText)).slice(0, 8) : [];
+  const rosterTeam = teams.find((t) => t.number === form.team);
+  const teamInfo = rosterTeam
+    ? { ...rosterTeam, nickname: labels.nick(rosterTeam.number, rosterTeam.nickname)
+        + (labels.renumbered(rosterTeam.number) ? ` (listed as ${rosterTeam.number})` : '') }
+    : form.team ? { number: form.team, nickname: "Not on this event's roster" } : null;
+  const typed = teamText.toUpperCase();
+  const teamSuggestions = typed
+    ? teams.filter((t) => String(t.number).startsWith(typed) || labels.num(t.number).toUpperCase().startsWith(typed)).slice(0, 8)
+    : [];
 
   function toggleTag(tag) {
     const removing = form.tags.includes(tag);
@@ -250,14 +261,14 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
       eventName: form.eventName || event?.shortName || eventKey,
       createdAt: form.createdAt || Date.now(),
     };
-    await copyText(ticketToText(snapshot));
+    await copyText(ticketToText(snapshot, labels));
     toast('Ticket copied to clipboard');
   }
 
   return (
     <>
       <TopBar
-        title={isFollowUp ? 'Flag for follow-up' : isImport ? 'Imported from Nexus' : isNew ? 'New ticket' : `Ticket ${ticketNumber(form)}`}
+        title={isFollowUp ? 'Flag for follow-up' : isImport ? 'Imported from Nexus' : isNew ? 'New ticket' : `Ticket ${ticketNumber(form, labels.num(form.team))}`}
         subtitle={isNew ? event?.shortName : `Opened ${formatDateTime(form.createdAt)} · ${form.eventName ?? eventKey}`}
         back={() => goBack(`/event/${eventKey}/tab/tickets`)}
         actions={
@@ -275,7 +286,7 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
             <input className="input" inputMode="numeric" placeholder="Type a team number…"
               value={teamText}
               onChange={(e) => {
-                const v = e.target.value.replace(/\D/g, '');
+                const v = e.target.value.replace(/[^0-9a-z]/gi, '');
                 setTeamText(v);
                 setTeamOpen(true);
                 changeTeam(v);
@@ -288,8 +299,8 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
                   <li key={t.number}>
                     <button className="combo-option" onMouseDown={(e) => e.preventDefault()}
                       onClick={() => pickTeam(t.number)}>
-                      <span className="num" style={{ minWidth: 48 }}>{t.number}</span>
-                      <span>{t.nickname}</span>
+                      <span className="num" style={{ minWidth: 48 }}>{labels.num(t.number)}</span>
+                      <span>{labels.nick(t.number, t.nickname)}</span>
                     </button>
                   </li>
                 ))}
@@ -404,7 +415,7 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
                   <li key={l} className="row" style={{ cursor: 'default' }}>
                     <div className="row-main" onClick={() => t && nav(`/event/${t.eventKey}/ticket/${t.id}`)}
                       style={{ cursor: t ? 'pointer' : 'default' }}>
-                      <div className="row-title">{t ? `${ticketNumber(t)} · ${t.title}` : 'Deleted ticket'}</div>
+                      <div className="row-title">{t ? `${ticketNumber(t, labels.num(t.team))} · ${t.title}` : 'Deleted ticket'}</div>
                       {t && <div className="row-sub">{t.eventName || t.eventKey} · {formatDateTime(t.createdAt)}</div>}
                     </div>
                     {t && <StatusPill status={t.status} />}
@@ -447,6 +458,7 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
 /** Only ever offers this same team's other tickets from the same season — a "continuing issue" link only makes
  *  sense between tickets for the same team, so cross-team linking isn't offered at all. */
 function LinkPicker({ tickets, team, onPick, onClose }) {
+  const labels = useTeamLabels();
   const [q, setQ] = useState('');
   const list = tickets
     .filter((t) => t.team === team)
@@ -459,7 +471,7 @@ function LinkPicker({ tickets, team, onPick, onClose }) {
     .slice(0, 60);
 
   return (
-    <Modal title={`Link a ticket for team ${team}`} onClose={onClose}>
+    <Modal title={`Link a ticket for team ${labels.num(team)}`} onClose={onClose}>
       <div className="stack">
         <input className="input" autoFocus placeholder="Search title or tag" value={q} onChange={(e) => setQ(e.target.value)} />
         {list.length ? (
@@ -467,7 +479,7 @@ function LinkPicker({ tickets, team, onPick, onClose }) {
             {list.map((t) => (
               <li key={t.id}>
                 <button className="row" onClick={() => onPick(t.id)}>
-                  <span className="num" style={{ fontSize: '1.05rem', minWidth: 56 }}>{ticketNumber(t)}</span>
+                  <span className="num" style={{ fontSize: '1.05rem', minWidth: 56 }}>{ticketNumber(t, labels.num(t.team))}</span>
                   <div className="row-main">
                     <div className="row-title">{t.title}</div>
                     <div className="row-sub">{t.eventName || t.eventKey} · {formatDateTime(t.createdAt)}</div>
@@ -478,7 +490,7 @@ function LinkPicker({ tickets, team, onPick, onClose }) {
             ))}
           </ul>
         ) : (
-          <p className="muted">No other tickets for team {team} this season yet.</p>
+          <p className="muted">No other tickets for team {labels.num(team)} this season yet.</p>
         )}
       </div>
     </Modal>

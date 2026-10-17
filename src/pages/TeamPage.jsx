@@ -58,12 +58,14 @@ export default function TeamPage({ eventKey, number }) {
             <TeamBox number={number} color={colorFor(number)} large />
             <div style={{ minWidth: 0 }}>
               <h2>{shownNick}</h2>
-              {label && (
+              {label ? (
                 <div className="small muted">
                   {labels.renumbered(number) ? `Listed as ${number}` : 'Custom name'}
                   {label.nickname && team.nickname && label.nickname !== team.nickname ? ` · TBA: ${team.nickname}` : ''}
                   {label.scope === 'all' ? ' · all events' : ' · this event only'}
                 </div>
+              ) : labels.renumbered(number) && (
+                <div className="small muted">Demo robot, listed as {number} on TBA</div>
               )}
               <div className="muted small">
                 {[team.city, team.stateProv, team.country].filter(Boolean).join(', ')}

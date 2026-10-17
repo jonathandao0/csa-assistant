@@ -10,36 +10,42 @@ import { db, useLive } from './db.js';
 // wins over an all-events one. Records live in the synced `teamLabels` store:
 //   { id: `${scope}:${team}`, scope, team, number, nickname }
 
-const LabelsContext = createContext({ records: [], eventKey: null });
+const LabelsContext = createContext({ records: [], eventKey: null, remap: {} });
 
-/** Wraps the app: loads labels once and knows which event is open (for event-only labels). */
+/** Wraps the app: loads labels once and knows which event is open (for event-only labels
+ *  and that event's TBA demo-robot remaps). */
 export function TeamLabelsProvider({ eventKey, children }) {
   const records = useLive(() => db.all('teamLabels'), []);
-  const value = useMemo(() => ({ records: records ?? [], eventKey }), [records, eventKey]);
+  const remap = useLive(async () => (eventKey ? (await db.get('events', eventKey))?.remapTeams ?? {} : {}), [eventKey]);
+  const value = useMemo(() => ({ records: records ?? [], eventKey, remap: remap ?? {} }), [records, eventKey, remap]);
   return createElement(LabelsContext.Provider, { value }, children);
 }
 
 /** A lookup over label records for one event (or none). Also usable outside React, e.g. the
- *  report builder, by passing records read straight from the database. */
-export function makeLabeler(records, eventKey) {
+ *  report builder, by passing records read straight from the database. `remap` is the event's
+ *  TBA demo-robot names ({ 9971: '971B' }), used as the display number when the user hasn't
+ *  set one. */
+export function makeLabeler(records, eventKey, remap = {}) {
   const byId = new Map((records ?? []).map((r) => [r.id, r]));
   const get = (n) => (eventKey && byId.get(`${eventKey}:${n}`)) || byId.get(`all:${n}`) || null;
+  const shown = (n) => get(n)?.number || remap?.[n] || String(n);
   return {
     get,
-    /** Display number: the custom one if set, else the real number. */
-    num: (n) => get(n)?.number || String(n),
+    /** Display number: the user's custom one, else TBA's remap ("971B"), else the real number. */
+    num: shown,
     /** Display nickname: the custom one if set, else `fallback` (usually TBA's). */
     nick: (n, fallback = '') => get(n)?.nickname || fallback,
     /** Whether the displayed number differs from the real one. */
-    renumbered: (n) => !!get(n)?.number && get(n).number !== String(n),
+    renumbered: (n) => shown(n) !== String(n),
   };
 }
 
 /** Labels for the event currently open (or `eventKey`, e.g. a ticket's own event). */
 export function useTeamLabels(eventKey) {
-  const { records, eventKey: current } = useContext(LabelsContext);
+  const { records, eventKey: current, remap } = useContext(LabelsContext);
   const key = eventKey === undefined ? current : eventKey;
-  return useMemo(() => makeLabeler(records, key), [records, key]);
+  // TBA remaps belong to the open event, so only apply them to that event's labels.
+  return useMemo(() => makeLabeler(records, key, key === current ? remap : {}), [records, key, current, remap]);
 }
 
 /** Saves (or, with both fields blank, removes) a team's label. An event-only label overrides

@@ -142,7 +142,7 @@ between linked tickets remounts the page and resets the form.
 | Store | Key | Shape |
 |---|---|---|
 | `settings` | out-of-line key | `tbaKey`, `nexusKey`, `nexusBase`, `eventIndex:<year>` → `{fetchedAt, events[]}`, Drive sync: `googleClientId`, `driveConnected`, `driveFileId`, `driveLastSync`, `syncTombstones`, `syncCleared` |
-| `events` | `key` | `{key, name, shortName, year, eventType, startDate, endDate, city, stateProv, country, teams[], matches[], nexus:{enabled, map, pits, live, inspection, error, check:{at, code, map, pits, live, inspection}}, nexusEventKey, dayOverride, phaseOverride, addedAt, fetchedAt}` |
+| `events` | `key` | `{key, name, shortName, year, eventType, startDate, endDate, city, stateProv, country, remapTeams, teams[], matches[], nexus:{enabled, map, pits, live, inspection, error, check:{at, code, map, pits, live, inspection}}, nexusEventKey, dayOverride, phaseOverride, addedAt, fetchedAt}` |
 | `readiness` | `id = "<eventKey>:<team>"` | `{eventKey, team, radio, inspection, field, ignored, notes, nexusApplied:{radio?, inspection?}, updatedAt}` |
 | `tickets` | `id` (uuid); indexes `eventKey`, `team` | `{eventKey, eventName, team:number, title, description, status, priority, tags[], lastMatch, resolution, links[], createdAt, updatedAt, resolvedAt}` |
 | `media` | `id = "<team>:<year>"` | TBA `{photos[] (direct URLs), avatar (data URL), fetchedAt}`, cached for 12 hours |
@@ -186,6 +186,7 @@ Changing the schema requires bumping the version in `openDB` and adding an upgra
     - The robot photo comes from media of type `imgur`, `cdphotothread` or `instagram-image` that has a `direct_url`. Items marked `preferred` are used first.
     - The team avatar comes from media of type `avatar`, using `details.base64Image`.
 - There is no search endpoint, so event search filters the cached season list on the device.
+- **Offseason demo robots (remap):** TBA keeps B robots on the event roster under placeholder numbers `frc9970`–`frc9999` but writes them into match alliances under their real name (`frc971B`), with the swap in the event's `remap_teams` (`{"frc9971": "frc971B"}`). `parseRemap()` in `sync.js` turns that into `event.remapTeams` (`{9971: '971B'}`) and `normalizeMatch()` maps `971B` back to `9971`, so the robot keeps its schedule (before this fix `Number('971B')` was NaN and those robots had no matches). A suffixed key with no remap entry is kept as text. The labeler shows the remap name ("971B") as the display number by default; a user label still wins.
 
 ### FRC Nexus v1
 
@@ -228,7 +229,7 @@ Changing the schema requires bumping the version in `openDB` and adding an upgra
 
 Owner request: offseason events list placeholder team numbers (e.g. 9971 for 971's B robot), so the user can give any team a custom **display number and/or nickname**, kept per user and persisting across events (synced via Drive like other data).
 
-- **Real number stays the key.** Tickets, readiness, photos, Nexus/TBA lookups and routes all keep the TBA number; only what's shown changes. `lib/teamLabels.js`: `TeamLabelsProvider` (in `App.jsx`, loads the store once and knows the open event from the route) + `useTeamLabels(eventKey?)` → `{get, num(n), nick(n, fallback), renumbered(n)}`; `makeLabeler(records, eventKey)` for non-React code (report).
+- **Real number stays the key.** Tickets, readiness, photos, Nexus/TBA lookups and routes all keep the TBA number; only what's shown changes. `lib/teamLabels.js`: `TeamLabelsProvider` (in `App.jsx`, loads the store once and knows the open event from the route) + `useTeamLabels(eventKey?)` → `{get, num(n), nick(n, fallback), renumbered(n)}`; `makeLabeler(records, eventKey, remap)` for non-React code (report). Display number precedence: user label → the open event's TBA `remapTeams` name ("971B") → real number.
 - **Scope:** a label applies to all events (default) or one event; an event-only label overrides the all-events one at that event and leaves it alone elsewhere. Saving an all-events label from an event drops that event's override. "Remove" clears only the label in effect (event override first).
 - **Edited** from the team page ("Set/Edit team number / name" → modal). The team page shows "Listed as 9971 · TBA: <nickname> · all events" under a relabelled team.
 - **Shown in:** `TeamBox` (everywhere), team/ticket/pit-map names and numbers, `TicketRow` and ticket numbers (`ticketNumber(ticket, displayNum)` → "971-2"), team-page match partners, ticket copy text (`ticketToText(ticket, labels)` adds "(listed as 9971)"), the Word report (`buildEventReport(..., { labels })`).

@@ -140,7 +140,7 @@ export default function EventPage({ eventKey, tab }) {
     try {
       const { buildEventReport } = await import('../lib/report.js');
       const all = (await db.all('tickets')).filter((t) => ticketYear(t) === event.year);
-      const labels = makeLabeler(await db.all('teamLabels'), event.key);
+      const labels = makeLabeler(await db.all('teamLabels'), event.key, event.remapTeams);
       const blob = await buildEventReport(event, ctx.tickets, all, { anonymize, labels });
       downloadBlob(blob, `CSA report ${event.key}${anonymize ? ' (anonymized)' : ''}.docx`);
       toast(anonymize ? 'Anonymized report downloaded' : 'Report downloaded');

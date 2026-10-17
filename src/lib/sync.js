@@ -4,10 +4,34 @@ import { nexusReadiness, withReadinessRules } from './logic.js';
 
 const LEVEL_ORDER = { qm: 1, ef: 2, qf: 3, sf: 4, f: 5 };
 
-function normalizeMatch(m) {
+/** Offseason demo robots: TBA lists them on the event's team roster under placeholder
+ *  numbers (frc9970–frc9999) but writes them into match alliances under their real "B"
+ *  name (frc254B), recording the swap in the event's `remap_teams` ({"frc9971": "frc971B"}).
+ *  Returns { 9971: '971B' } for display, and the reverse lookup used to put the placeholder
+ *  number back into each match so the robot keeps its schedule. */
+export function parseRemap(remapTeams) {
+  const display = {};
+  const toNumber = {};
+  for (const [from, to] of Object.entries(remapTeams ?? {})) {
+    const n = Number(String(from).replace(/^frc/i, ''));
+    const label = String(to).replace(/^frc/i, '').toUpperCase();
+    if (!n || !label) continue;
+    display[n] = label;
+    toNumber[label] = n;
+  }
+  return { display, toNumber };
+}
+
+function normalizeMatch(m, toNumber = {}) {
   const red = m.alliances?.red ?? {};
   const blue = m.alliances?.blue ?? {};
-  const num = (k) => Number(String(k).replace('frc', ''));
+  // "frc254" → 254; "frc971B" → its roster placeholder (9971) via remap_teams. A suffixed key
+  // with no remap entry is kept as text so it still shows in the alliance, rather than NaN.
+  const num = (k) => {
+    const raw = String(k).replace(/^frc/i, '').toUpperCase();
+    if (/^\d+$/.test(raw)) return Number(raw);
+    return toNumber[raw] ?? raw;
+  };
   const played = m.actual_time != null || (red.score ?? -1) >= 0;
   return {
     key: m.key,
@@ -87,6 +111,9 @@ export async function syncEvent(eventKey) {
     ? { at: Date.now(), code: nexusCode, map: describe(map), pits: describe(pits), live: describe(live), inspection: describe(inspection) }
     : existing?.nexus?.check ?? null;
   if (nexusError) warnings.push(`FRC Nexus data wasn't updated: ${nexusError}`);
+  // Kept from the last good TBA fetch if this one failed.
+  const remap = tbaOk ? parseRemap(ev.remap_teams) : { display: existing?.remapTeams ?? {}, toNumber: {} };
+  if (!tbaOk) for (const [n, label] of Object.entries(remap.display)) remap.toNumber[label] = Number(n);
   const tbaFields = tbaOk ? {
     name: ev.name,
     shortName: ev.short_name || ev.name,
@@ -98,6 +125,7 @@ export async function syncEvent(eventKey) {
     city: ev.city,
     stateProv: ev.state_prov,
     country: ev.country,
+    remapTeams: remap.display,
   } : {};
   const record = {
     ...existing,
@@ -117,7 +145,7 @@ export async function syncEvent(eventKey) {
       }))
       .sort((a, b) => a.number - b.number),
     // A failed schedule request keeps the last good schedule rather than emptying it.
-    matches: matches ? sortMatches(matches.map(normalizeMatch)) : existing?.matches ?? [],
+    matches: matches ? sortMatches(matches.map((m) => normalizeMatch(m, remap.toNumber))) : existing?.matches ?? [],
     nexus: {
       enabled: hasNexusKey,
       map: map.value ?? existing?.nexus?.map ?? null,

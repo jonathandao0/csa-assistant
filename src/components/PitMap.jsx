@@ -43,7 +43,9 @@ function Arrow({ item }) {
   );
 }
 
-export default function PitMap({ map, colorFor, onSelect, highlight, teamAddresses, labelFor = String }) {
+/** `background` ({ href, width, height }) draws a pit map image under the pits — used for
+ *  maps made from a photo via OCR, whose pits are boxes placed over the printed numbers. */
+export default function PitMap({ map, colorFor, onSelect, highlight, teamAddresses, labelFor = String, background }) {
   const [zoom, setZoom] = useState(1);
   const W = map.size?.x ?? 1000;
   const H = map.size?.y ?? 1000;
@@ -81,6 +83,10 @@ export default function PitMap({ map, colorFor, onSelect, highlight, teamAddress
       <div className="map-scroll">
         <svg viewBox={`0 0 ${W} ${H}`} style={{ width: `${zoom * 100}%`, height: 'auto' }}
           role="img" aria-label="Pit map">
+          {background && (
+            <image href={background.href} x="0" y="0" width={background.width} height={background.height}
+              preserveAspectRatio="none" />
+          )}
           {Object.values(map.walls ?? {}).map((w, i) => {
             const b = box(w);
             return (
@@ -137,7 +143,7 @@ export default function PitMap({ map, colorFor, onSelect, highlight, teamAddress
                   style={{ fill: color ? color.text : 'var(--muted)', fontSize: team ? fs : fs * 0.6 }}>
                   {label}
                 </text>
-                {team && (
+                {team && !background && (
                   <text x={b.x - b.w / 2 + 6} y={b.y - b.h / 2 + 6} textAnchor="start" dominantBaseline="hanging"
                     style={{ fill: color.text, opacity: 0.7, fontSize: Math.max(9, b.h * 0.14), fontWeight: 600 }}>
                     {address}

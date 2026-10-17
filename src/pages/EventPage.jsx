@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import LedReference from '../components/LedReference.jsx';
+import ImageMapEditor from '../components/ImageMapEditor.jsx';
 import PitMap from '../components/PitMap.jsx';
+import { imageMapToPitMap } from '../lib/pitOcr.js';
 import { Icon, Legend, Loading, Modal, ReadinessMarks, TeamBox, TicketRow, TopBar } from '../components/ui.jsx';
 import { db, getSetting, useLive } from '../lib/db.js';
 import { DEMO_EVENT_KEYS } from '../lib/devSeed.js';
@@ -133,7 +135,9 @@ export default function EventPage({ eventKey, tab }) {
   }
 
   const { event, phaseInfo } = ctx;
-  const hasMap = !!event.nexus?.map?.pits && Object.keys(event.nexus.map.pits).length > 0;
+  const hasNexusMap = !!event.nexus?.map?.pits && Object.keys(event.nexus.map.pits).length > 0;
+  // A pit map made from an image (OCR) counts too, for events without one on Nexus.
+  const hasMap = hasNexusMap || !!event.imageMap?.pins?.length;
   const tabs = hasMap
     ? [['map', 'Pit map'], ['today', 'Priority list'], ['teams', 'Teams'], ['tickets', 'Tickets'], ['ref', 'Reference']]
     : [['teams', 'Teams'], ['today', 'Priority list'], ['tickets', 'Tickets'], ['map', 'Pit map'], ['ref', 'Reference']];
@@ -184,7 +188,7 @@ export default function EventPage({ eventKey, tab }) {
         </nav>
       </TopBar>
       <main className="page">
-        {active === 'map' && <MapTab ctx={ctx} hasMap={hasMap} onRetry={refresh} syncing={syncing} />}
+        {active === 'map' && <MapTab ctx={ctx} hasNexusMap={hasNexusMap} onRetry={refresh} syncing={syncing} />}
         {active === 'today' && <PrioritiesTab ctx={ctx} />}
         {active === 'teams' && <TeamsTab ctx={ctx} />}
         {active === 'tickets' && <TicketsTab ctx={ctx} onExport={exportReport} exporting={exporting} />}
@@ -214,9 +218,15 @@ export default function EventPage({ eventKey, tab }) {
 
 // ---------------- Pit map ----------------
 
-function MapTab({ ctx, hasMap, onRetry, syncing }) {
+function MapTab({ ctx, hasNexusMap, onRetry, syncing }) {
   const { event, colorFor, phaseInfo } = ctx;
   const labels = useTeamLabels();
+  const hasImageMap = !!event.imageMap?.pins?.length;
+  const [editingImage, setEditingImage] = useState(false);
+  // Which map to show when both exist; the Nexus one by default.
+  const [source, setSource] = useState('nexus');
+  const showImage = hasImageMap && (!hasNexusMap || source === 'image');
+  const imageEditor = editingImage && <ImageMapEditor event={event} onClose={() => setEditingImage(false)} />;
   const [find, setFind] = useState('');
   const [findOpen, setFindOpen] = useState(false);
   // Finds by the real (TBA) number or a custom display number.
@@ -228,7 +238,7 @@ function MapTab({ ctx, hasMap, onRetry, syncing }) {
     ? event.teams.filter((t) => String(t.number).startsWith(findKey) || labels.num(t.number).toUpperCase().startsWith(findKey)).slice(0, 8)
     : [];
 
-  if (!hasMap) {
+  if (!hasNexusMap && !hasImageMap) {
     const reason = !event.nexus?.enabled
       ? 'Add your Nexus API key in Settings to load pit maps.'
       : event.nexus?.error
@@ -259,7 +269,18 @@ function MapTab({ ctx, hasMap, onRetry, syncing }) {
             {!event.nexus?.enabled && <a className="btn primary" href="#/settings">Open Settings</a>}
           </div>
         </div>
+        <div className="sheet-pad stack" style={{ borderTop: '1px solid var(--line)' }}>
+          <strong>Have a picture of the pit map?</strong>
+          <span className="small muted">
+            Take a photo of the posted map or use a screenshot. The app reads the team numbers on it and pins each
+            team, all on this phone.
+          </span>
+          <div><button className="btn primary" onClick={() => setEditingImage(true)}>
+            <Icon name="camera" size={20} /> Use an image of the pit map
+          </button></div>
+        </div>
         {event.nexus?.enabled && <NexusCodeField event={event} />}
+        {imageEditor}
       </div>
     );
   }
@@ -292,12 +313,38 @@ function MapTab({ ctx, hasMap, onRetry, syncing }) {
           <span className="muted small">Pit {event.nexus.pits[highlight]}</span>
         )}
       </div>
-      <PitMap map={event.nexus.map} colorFor={colorFor} highlight={highlight} labelFor={labels.num}
-        teamAddresses={event.nexus?.pits} onSelect={(team) => nav(`/event/${event.key}/team/${team}`)} />
+      {hasNexusMap && hasImageMap && (
+        <div className="segmented" style={{ marginBottom: 10 }} role="radiogroup" aria-label="Which pit map">
+          <button aria-pressed={!showImage} onClick={() => setSource('nexus')}>Nexus map</button>
+          <button aria-pressed={showImage} onClick={() => setSource('image')}>Your image</button>
+        </div>
+      )}
+      {showImage ? (
+        <PitMap map={imageMapToPitMap(event.imageMap)} colorFor={colorFor} highlight={highlight} labelFor={labels.num}
+          background={{ href: event.imageMap.dataUrl, width: event.imageMap.width, height: event.imageMap.height }}
+          onSelect={(team) => nav(`/event/${event.key}/team/${team}`)} />
+      ) : (
+        <PitMap map={event.nexus.map} colorFor={colorFor} highlight={highlight} labelFor={labels.num}
+          teamAddresses={event.nexus?.pits} onSelect={(team) => nav(`/event/${event.key}/team/${team}`)} />
+      )}
       <Legend phase={phaseInfo.phase} />
-      <div className="sheet" style={{ marginTop: 16 }}>
-        <NexusCodeField event={event} />
+      <div className="sheet sheet-pad stack" style={{ marginTop: 16 }}>
+        <strong>Pit map image</strong>
+        <span className="small muted">
+          {hasImageMap
+            ? `${event.imageMap.pins.length} of ${event.teams.length} teams pinned on your image.`
+            : 'Make a pit map from a photo or screenshot: the app reads the team numbers and pins each team.'}
+        </span>
+        <div><button className="btn" onClick={() => setEditingImage(true)}>
+          <Icon name="camera" size={18} /> {hasImageMap ? 'Edit pins or replace image' : 'Use an image of the pit map'}
+        </button></div>
       </div>
+      {event.nexus?.enabled && (
+        <div className="sheet" style={{ marginTop: 16 }}>
+          <NexusCodeField event={event} />
+        </div>
+      )}
+      {imageEditor}
     </>
   );
 }

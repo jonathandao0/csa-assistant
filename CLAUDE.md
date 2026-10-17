@@ -118,9 +118,11 @@ src/
   lib/drive.js           Google sign-in (GIS token) + Drive REST for the sync file
   lib/cloudSync.js       mergeSnapshots(), syncNow(), startAutoSync(), useSyncStatus()
   lib/teamLabels.js      custom display number/nickname per team: provider, useTeamLabels(), makeLabeler()
+  lib/pitOcr.js          Tesseract OCR of a pit map image → team pins; imageMapToPitMap()
   lib/ledCodes.js        static CTRE/REV status-LED reference data (Reference tab)
   components/ui.jsx      Icon, TopBar, TeamBox, ReadinessMarks, StatusPill, TicketRow, Legend, Modal, Toaster
-  components/PitMap.jsx  SVG renderer for Nexus map JSON
+  components/PitMap.jsx  SVG renderer for Nexus map JSON (optional background image for OCR maps)
+  components/ImageMapEditor.jsx  pick image → OCR → review/fix pins → save event.imageMap
   components/LedReference.jsx  searchable CTRE/REV LED blink-code lookup (Reference tab)
   pages/Home.jsx         monitored events + add by key / search
   pages/EventPage.jsx    5 tabs + useEventContext() + toggleReadiness() + setIgnored()
@@ -148,7 +150,7 @@ between linked tickets remounts the page and resets the form.
 | Store | Key | Shape |
 |---|---|---|
 | `settings` | out-of-line key | `tbaKey`, `nexusKey`, `nexusBase`, `eventIndex:<year>` → `{fetchedAt, events[]}`, Drive sync: `googleClientId`, `driveConnected`, `driveFileId`, `driveLastSync`, `syncTombstones`, `syncCleared` |
-| `events` | `key` | `{key, name, shortName, year, eventType, startDate, endDate, city, stateProv, country, remapTeams, teams[], matches[], nexus:{enabled, map, pits, live, inspection, error, check:{at, code, map, pits, live, inspection}}, nexusEventKey, dayOverride, phaseOverride, addedAt, fetchedAt}` |
+| `events` | `key` | `{key, name, shortName, year, eventType, startDate, endDate, city, stateProv, country, remapTeams, imageMap:{dataUrl, width, height, pins:[{team, x, y, w, h}], updatedAt}, teams[], matches[], nexus:{enabled, map, pits, live, inspection, error, check:{at, code, map, pits, live, inspection}}, nexusEventKey, dayOverride, phaseOverride, addedAt, fetchedAt}` |
 | `readiness` | `id = "<eventKey>:<team>"` | `{eventKey, team, radio, inspection, field, ignored, notes, nexusApplied:{radio?, inspection?}, checkedInFor (match key), updatedAt}` |
 | `tickets` | `id` (uuid); indexes `eventKey`, `team` | `{eventKey, eventName, team:number, title, description, status, priority, tags[], lastMatch, resolution, links[], createdAt, updatedAt, resolvedAt}` |
 | `media` | `id = "<team>:<year>"` | TBA `{photos[] (direct URLs), avatar (data URL), fetchedAt}`, cached for 12 hours |
@@ -230,6 +232,15 @@ Changing the schema requires bumping the version in `openDB` and adding an upgra
 - **Nexus event code override** (`nexusEventKey`): Nexus can file an event under a different code than TBA — seen for real with an offseason event, TBA `2026cass` vs. Nexus `2026cael`. `syncEvent()` sends every Nexus request (map, pits, live, inspection) to `nexusEventKey || key`. Set from the "Nexus event code" box on the Pit map tab (on the N/A screen and under a loaded map) via `setNexusEventKey()`, which clears the Nexus data loaded under the old code and re-syncs; an empty value or the TBA key itself resets it to null. Everything else (routes, tickets, Nexus match-label → TBA match-key mapping) keeps using the TBA `key`.
 - Nexus requests use `cache: 'no-store'` and TBA `cache: 'no-cache'`, so a browser HTTP-cache copy can never hide new data. The service worker doesn't cache either API.
 - The Pit map tab's N/A screen shows when Nexus was last checked.
+
+## Pit map from an image (OCR)
+
+Owner request: build a pit map from a photo/screenshot of the posted map, for events without one on Nexus (or alongside it).
+
+- **Flow** (`components/ImageMapEditor.jsx`, opened from the Pit map tab — the N/A screen's "Use an image of the pit map", or "Edit pins or replace image" under a map): pick/take an image → `storedImage()` keeps a JPEG (longest side 2000 px) → `findTeamsInImage()` OCRs it → review screen (image with pins; tap a pin then a spot to move it, or Remove; tap a "Not found" team chip then its spot to place it; "Read numbers again") → Save writes `event.imageMap` (pins are centers in stored-image pixels). Remove deletes it.
+- **OCR** (`lib/pitOcr.js`, lazy-loaded): **Tesseract.js 5**, on-device. Worker, both engine builds (SIMD/non-SIMD LSTM) and the compact English model (`@tesseract.js-data/eng` 4.0.0_best_int) are served from the site under `tesseract/` by the `tesseractAssets()` plugin in `vite.config.js` (dev middleware + emitted at build) — no CDN (blocked in the sandbox anyway), works offline. Excluded from the SW precache (`globIgnores`, ~11 MB) and cached on first use (`ocr-engine` CacheFirst). Input is upscaled to 3000 px, grayscale + contrast; whitelist digits+capitals. Up to 3 passes, stopping once every team is found: sparse text, automatic layout, then four overlapping quarters (OCR on a whole map skips regions). Tokens match a team's labels exactly (real number + display number from `useTeamLabels`), or one edit away from exactly one team (≥4 chars, confidence −25); best reading per team wins.
+- **Measured** on a synthetic 1600×1000 map of 20 five-digit teams + distractors: 19/20 found, 0 false positives, ~4–6 s in headless Chromium. Real photos (glare, angle, small print) are unverified.
+- **Display:** `imageMapToPitMap()` turns pins into Nexus-shaped pit boxes (a bit larger than the OCR'd number) and `PitMap` draws them over the image via its `background` prop (addresses hidden), so zoom, status colors, find-a-team and tap-to-open all work. An event with only an image map counts as having a map (tab order). With both, a Nexus map / Your image toggle shows above the map (Nexus by default). `imageMap` lives on the event record, so it survives refreshes and syncs via Drive.
 
 ## Custom team numbers / names
 

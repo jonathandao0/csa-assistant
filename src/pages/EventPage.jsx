@@ -878,7 +878,7 @@ function NexusImport({ event, onClose }) {
         {parsed && (
           <div className="sheet sheet-pad">
             <dl className="dl">
-              <dt>Type</dt><dd>{parsed.kind === 'fta' ? 'FTA follow-up request' : 'Team help request'}</dd>
+              <dt>Type</dt><dd>{parsed.kind === 'fta' ? 'FTA follow-up request' : parsed.kind === 'fta-request' ? 'FTA request' : parsed.requester ? `${parsed.requester} request` : 'Team help request'}</dd>
               <dt>Team</dt>
               <dd>
                 {parsed.team ? labels.num(parsed.team) : <span className="error">Not found — pick it on the next screen</span>}

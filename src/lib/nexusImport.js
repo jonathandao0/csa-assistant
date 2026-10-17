@@ -1,7 +1,11 @@
 import { autoTags } from './logic.js';
 
 // Turns a message FRC Nexus posted to a CSA Slack channel (copied and pasted into the app)
-// into a ticket draft. Two kinds are known, roughly (exact wording unconfirmed):
+// into a ticket draft. The main format, confirmed from a real message, is one line:
+//
+//   FTA request for team 6560: CAN issues many many and didn’t move all match
+//
+// (handled by parseRequestLine). Two older, approximate formats are also accepted:
 //
 //   Team 9999 has requested help with the following:
 //   Networking connection issues
@@ -130,8 +134,44 @@ function resolveLabelled(team, event, labels) {
   return hit ? hit.number : team;
 }
 
+// The main format Nexus posts (confirmed by the owner from a real message):
+//   FTA request for team 6560: CAN issues many many and didn’t move all match
+// "<who> request for team <n>: <free text>", where <who> is the role asking (FTA, LRI, …).
+const REQUEST_LINE = /^\s*(?:([A-Za-z]{2,6})\s+)?request(?:ed)?\s+for\s+team\s+#?(\d{1,5})\s*[:\-–—]\s*([\s\S]*)$/i;
+
+function parseRequestLine(text, event, labels) {
+  const lines = text.split('\n');
+  const at = lines.findIndex((l) => l.trim());
+  const m = at >= 0 ? REQUEST_LINE.exec(lines[at]) : null;
+  if (!m) return null;
+  const who = (m[1] ?? '').toUpperCase();
+  // Everything after the colon (plus any following lines) is the issue, kept as written.
+  const body = [m[3], ...lines.slice(at + 1)].map((l) => l.trim()).filter(Boolean).join('\n');
+  const issues = body ? body.split('\n') : [];
+  const summary = issues.join(' — ');
+  const prefix = who ? `${who}: ` : '';
+  const room = 80 - prefix.length;
+  const match = matchFrom(body);
+  return {
+    kind: who === 'FTA' ? 'fta-request' : 'help',
+    requester: who || null,
+    team: resolveLabelled(Number(m[2]), event, labels),
+    pit: pitFrom(text),
+    issues,
+    lastMatch: match && !match.upcoming ? match.label : '',
+    mentionedMatch: match?.label ?? '',
+    tags: tagsFor(body || text),
+    title: summary
+      ? prefix + (summary.length > room ? `${summary.slice(0, room - 3).trim()}…` : summary)
+      : `${who || 'Nexus'} request`,
+    description: `${who ? `${who} request` : 'Request'} from Nexus (pasted from Slack):\n\n${text}`,
+  };
+}
+
 export function parseNexusMessage(raw, event, labels) {
   const text = cleanSlackText(raw);
+  const request = parseRequestLine(text, event, labels);
+  if (request) return request;
   // "An FTA has requested a CSA to follow up with team 9999" + "FTA notes:" — a follow-up
   // the FTA is asking for, rather than the team asking for help themselves.
   const fta = /\bFTA\b/.test(text) && /follow[\s-]?up/i.test(text);

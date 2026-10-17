@@ -887,6 +887,9 @@ function NexusImport({ event, onClose }) {
               </dd>
               {parsed.pit && (<><dt>Pit</dt><dd>{parsed.pit}</dd></>)}
               <dt>Title</dt><dd>{parsed.title}</dd>
+              {parsed.requester !== undefined && parsed.description && (
+                <><dt>Description</dt><dd style={{ whiteSpace: 'pre-line' }}>{parsed.description}</dd></>
+              )}
               <dt>Tags</dt><dd>{parsed.tags.length ? parsed.tags.join(', ') : 'None matched'}</dd>
               <dt>Last match</dt>
               <dd>

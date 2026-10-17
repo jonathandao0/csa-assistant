@@ -145,12 +145,9 @@ function parseRequestLine(text, event, labels) {
   const m = at >= 0 ? REQUEST_LINE.exec(lines[at]) : null;
   if (!m) return null;
   const who = (m[1] ?? '').toUpperCase();
-  // Everything after the colon (plus any following lines) is the issue, kept as written.
+  // Everything after the colon (plus any following lines), kept as written.
   const body = [m[3], ...lines.slice(at + 1)].map((l) => l.trim()).filter(Boolean).join('\n');
   const issues = body ? body.split('\n') : [];
-  const summary = issues.join(' — ');
-  const prefix = who ? `${who}: ` : '';
-  const room = 80 - prefix.length;
   const match = matchFrom(body);
   return {
     kind: who === 'FTA' ? 'fta-request' : 'help',
@@ -161,10 +158,10 @@ function parseRequestLine(text, event, labels) {
     lastMatch: match && !match.upcoming ? match.label : '',
     mentionedMatch: match?.label ?? '',
     tags: tagsFor(body || text),
-    title: summary
-      ? prefix + (summary.length > room ? `${summary.slice(0, room - 3).trim()}…` : summary)
-      : `${who || 'Nexus'} request`,
-    description: `${who ? `${who} request` : 'Request'} from Nexus (pasted from Slack):\n\n${text}`,
+    // The owner's call: the header stays the title ("FTA request for team 6560") for them to
+    // rename, and the free text after the colon is the description.
+    title: `${who ? `${who} request` : 'Request'} for team ${m[2]}`,
+    description: body,
   };
 }
 

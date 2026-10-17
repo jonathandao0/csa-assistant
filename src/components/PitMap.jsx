@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { TEAM_COLORS } from '../lib/logic.js';
+import { Icon } from './ui.jsx';
 
 // Nexus map items give a center position and a size, plus an optional angle in degrees.
 function box(item) {
@@ -43,10 +44,50 @@ function Arrow({ item }) {
   );
 }
 
-/** `background` ({ href, width, height }) draws a pit map image under the pits — used for
- *  maps made from a photo via OCR, whose pits are boxes placed over the printed numbers. */
-export default function PitMap({ map, colorFor, onSelect, highlight, teamAddresses, labelFor = String, background }) {
+/** Turns a whole map by 90° steps (clockwise). Positions move; boxes keep their shape by
+ *  swapping width and height, so pit numbers and labels stay upright. Arrows turn instead,
+ *  so they still point the right way. */
+export function rotateMap(map, degrees) {
+  const turns = (((Math.round((degrees || 0) / 90)) % 4) + 4) % 4;
+  if (!turns) return map;
+  const W = map.size?.x ?? 1000;
+  const H = map.size?.y ?? 1000;
+  const point = ({ x, y }) =>
+    turns === 1 ? { x: H - y, y: x } : turns === 2 ? { x: W - x, y: H - y } : { x: y, y: W - x };
+  const swap = turns % 2 === 1;
+  const turnItem = (item, isArrow) => ({
+    ...item,
+    position: point(item.position),
+    ...(isArrow
+      ? { angle: ((item.angle ?? 0) + turns * 90) % 360 }
+      : swap && item.size ? { size: { x: item.size.y, y: item.size.x } } : {}),
+  });
+  const each = (group, isArrow = false) =>
+    Object.fromEntries(Object.entries(group ?? {}).map(([k, v]) => [k, turnItem(v, isArrow)]));
+  return {
+    ...map,
+    size: swap ? { x: H, y: W } : { x: W, y: H },
+    pits: each(map.pits),
+    areas: each(map.areas),
+    labels: each(map.labels),
+    arrows: each(map.arrows, true),
+    walls: each(map.walls),
+  };
+}
+
+const pitFont = (b, label) => Math.min(b.h * 0.42, (b.w * 0.88) / (label.length * 0.52));
+
+/**
+ * `rotation` (0/90/180/270) turns the map; with `onRotate` a Rotate button is shown, called
+ * with the next angle. `uniformText` draws every team number at the same size (image maps).
+ * `showAddresses` (default on) prints each pit's address in its corner.
+ */
+export default function PitMap({
+  map: rawMap, colorFor, onSelect, highlight, teamAddresses, labelFor = String,
+  rotation = 0, onRotate, uniformText = false, showAddresses = true,
+}) {
   const [zoom, setZoom] = useState(1);
+  const map = useMemo(() => rotateMap(rawMap, rotation), [rawMap, rotation]);
   const W = map.size?.x ?? 1000;
   const H = map.size?.y ?? 1000;
 
@@ -61,6 +102,18 @@ export default function PitMap({ map, colorFor, onSelect, highlight, teamAddress
     }
     return out;
   }, [teamAddresses]);
+  const teamOf = (address, pit) =>
+    pit.team ? Number(pit.team) : (teamByAddress[String(address).trim().toUpperCase()] ?? null);
+  // Same number size on every pit: the size that fits the tightest one.
+  const sharedFont = useMemo(() => {
+    if (!uniformText) return 0;
+    const sizes = pits.map(([address, pit]) => {
+      const team = teamOf(address, pit);
+      return team ? pitFont(box(pit), labelFor(team)) : Infinity;
+    });
+    return Math.min(...sizes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pits, uniformText, labelFor, teamByAddress]);
   const noAssignmentsYet = pits.length > 0 && !pits.some(
     ([address, pit]) => pit.team || teamByAddress[String(address).trim().toUpperCase()],
   );
@@ -78,15 +131,16 @@ export default function PitMap({ map, colorFor, onSelect, highlight, teamAddress
         <button className="btn" aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(1, z / 1.4))}>−</button>
         <button className="btn" aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(5, z * 1.4))}>+</button>
         <button className="btn" onClick={() => setZoom(1)} disabled={zoom === 1}>Fit</button>
+        {onRotate && (
+          <button className="btn" aria-label="Rotate map" title="Rotate map" onClick={() => onRotate((rotation + 90) % 360)}>
+            <Icon name="rotate" size={18} />
+          </button>
+        )}
         <span className="muted small" style={{ marginLeft: 'auto' }}>Tap a pit to open the team</span>
       </div>
       <div className="map-scroll">
         <svg viewBox={`0 0 ${W} ${H}`} style={{ width: `${zoom * 100}%`, height: 'auto' }}
           role="img" aria-label="Pit map">
-          {background && (
-            <image href={background.href} x="0" y="0" width={background.width} height={background.height}
-              preserveAspectRatio="none" />
-          )}
           {Object.values(map.walls ?? {}).map((w, i) => {
             const b = box(w);
             return (
@@ -120,16 +174,16 @@ export default function PitMap({ map, colorFor, onSelect, highlight, teamAddress
           ))}
           {pits.map(([address, pit]) => {
             const b = box(pit);
-            const team = pit.team ? Number(pit.team) : (teamByAddress[String(address).trim().toUpperCase()] ?? null);
+            const team = teamOf(address, pit);
             const color = team ? TEAM_COLORS[colorFor(team)] : null;
             // Display number (a custom label for offseason placeholder numbers, if set).
             const label = team ? labelFor(team) : address;
-            const fs = Math.min(b.h * 0.42, (b.w * 0.88) / (label.length * 0.52));
+            const fs = team && uniformText ? sharedFont : pitFont(b, label);
             const lit = highlight && team === highlight;
             return (
               <g key={address} className={team ? 'pit' : undefined} transform={rot(b)}
                 onClick={team ? () => onSelect(team) : undefined}
-                role={team ? 'button' : undefined} aria-label={team ? `Team ${label}, pit ${address}` : undefined}
+                role={team ? 'button' : undefined} aria-label={team ? (showAddresses ? `Team ${label}, pit ${address}` : `Team ${label}`) : undefined}
                 tabIndex={team ? 0 : undefined}
                 onKeyDown={team ? (e) => e.key === 'Enter' && onSelect(team) : undefined}>
                 <rect x={b.x - b.w / 2 + 3} y={b.y - b.h / 2 + 3} width={b.w - 6} height={b.h - 6} rx="4"
@@ -143,7 +197,7 @@ export default function PitMap({ map, colorFor, onSelect, highlight, teamAddress
                   style={{ fill: color ? color.text : 'var(--muted)', fontSize: team ? fs : fs * 0.6 }}>
                   {label}
                 </text>
-                {team && !background && (
+                {team && showAddresses && (
                   <text x={b.x - b.w / 2 + 6} y={b.y - b.h / 2 + 6} textAnchor="start" dominantBaseline="hanging"
                     style={{ fill: color.text, opacity: 0.7, fontSize: Math.max(9, b.h * 0.14), fontWeight: 600 }}>
                     {address}

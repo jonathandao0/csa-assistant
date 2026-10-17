@@ -155,12 +155,18 @@ export async function syncEvent(eventKey) {
       error: nexusError,
       check: nexusCheck,
     },
-    dayOverride: existing?.dayOverride ?? null,
-    phaseOverride: existing?.phaseOverride ?? null,
-    nexusEventKey: existing?.nexusEventKey ?? null,
     addedAt: existing?.addedAt ?? Date.now(),
     fetchedAt: Date.now(),
   };
+  // Settings the user changes on the event are re-read just before saving, so a change made
+  // while the network requests were running isn't overwritten by the copy read at the start.
+  const latest = (await db.get('events', key)) ?? existing;
+  record.dayOverride = latest?.dayOverride ?? null;
+  record.phaseOverride = latest?.phaseOverride ?? null;
+  record.nexusEventKey = latest?.nexusEventKey ?? null;
+  record.mapRotation = latest?.mapRotation ?? null;
+  if (latest?.imageMap) record.imageMap = latest.imageMap;
+  else delete record.imageMap;
   await db.put('events', record);
   if (hasNexusKey) await applyNexusReadiness(record);
 

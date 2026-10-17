@@ -164,15 +164,39 @@ export async function findTeamsInImage(img, size, teams, onProgress = () => {}) 
   }
 }
 
-/** Builds the Nexus-shaped map JSON PitMap renders, from a saved image map. Each pin becomes
- *  a pit box a bit larger than the number OCR found (so it's easy to tap and covers the
- *  printed number), keyed by team. */
+/** One size for every pit on an image map, so the diagram reads evenly however big each
+ *  printed number happened to be. Square pits sized from the spacing between neighbouring
+ *  pins (a low quantile, so a couple of crowded pins don't shrink everything and boxes don't
+ *  overlap) and capped at about twice the printed number, falling back to the typical OCR'd number width when there's only one pin. */
+export function uniformPitSize(pins, imageWidth) {
+  const floor = imageWidth * 0.02;
+  if (!pins?.length) return imageWidth * 0.04;
+  const sorted = (a) => [...a].sort((x, y) => x - y);
+  const typicalNumber = sorted(pins.map((p) => p.w ?? 0))[Math.floor(pins.length / 2)] * 1.35;
+  if (pins.length < 2) return Math.max(floor, typicalNumber);
+  const nearest = pins.map((p) =>
+    Math.min(...pins.filter((q) => q !== p).map((q) => Math.hypot(q.x - p.x, q.y - p.y))));
+  const spacing = sorted(nearest)[Math.floor((nearest.length - 1) * 0.25)];
+  // Capped for spread-out maps, so far-apart pins don't get giant boxes.
+  return Math.max(floor, Math.min(spacing * 0.9, typicalNumber * 2.2));
+}
+
+/** Builds the Nexus-shaped map JSON PitMap renders from a saved image map: a clean diagram
+ *  of same-size square pits at the pinned spots (no photo), cropped to the pins plus a
+ *  margin. Keyed by team. */
 export function imageMapToPitMap(imageMap) {
+  const pins = imageMap.pins ?? [];
+  const s = uniformPitSize(pins, imageMap.width);
+  const xs = pins.map((p) => p.x);
+  const ys = pins.map((p) => p.y);
+  const pad = s * 0.75;
+  const left = pins.length ? Math.min(...xs) - s / 2 - pad : 0;
+  const top = pins.length ? Math.min(...ys) - s / 2 - pad : 0;
+  const right = pins.length ? Math.max(...xs) + s / 2 + pad : imageMap.width;
+  const bottom = pins.length ? Math.max(...ys) + s / 2 + pad : imageMap.height;
   const pits = {};
-  for (const p of imageMap.pins ?? []) {
-    const w = Math.max(p.w * 1.35, imageMap.width * 0.028);
-    const h = Math.max(p.h * 1.5, w * 0.55);
-    pits[`img-${p.team}`] = { position: { x: p.x, y: p.y }, size: { x: w, y: h }, team: String(p.team) };
+  for (const p of pins) {
+    pits[`img-${p.team}`] = { position: { x: p.x - left, y: p.y - top }, size: { x: s, y: s }, team: String(p.team) };
   }
-  return { size: { x: imageMap.width, y: imageMap.height }, pits, areas: {}, labels: {}, arrows: {}, walls: {} };
+  return { size: { x: right - left, y: bottom - top }, pits, areas: {}, labels: {}, arrows: {}, walls: {} };
 }

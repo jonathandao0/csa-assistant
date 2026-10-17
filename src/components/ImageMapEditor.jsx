@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { db } from '../lib/db.js';
+import { uniformPitSize } from '../lib/pitOcr.js';
 import { useTeamLabels } from '../lib/teamLabels.js';
 import { toast } from '../lib/util.js';
 import { Icon, Modal } from './ui.jsx';
@@ -9,7 +10,7 @@ import { Icon, Modal } from './ui.jsx';
  * finds the teams' numbers on it, then the user reviews — remove wrong pins, tap to place
  * teams OCR missed, tap a pin then a new spot to move it — and saves. Saved on the event as
  * `imageMap: { dataUrl, width, height, pins: [{ team, x, y, w, h }] }` (pins are centers in
- * image pixels).
+ * image pixels). The photo is only shown here; the pit map tab draws a diagram from the pins.
  */
 export default function ImageMapEditor({ event, onClose }) {
   const labels = useTeamLabels();
@@ -33,6 +34,8 @@ export default function ImageMapEditor({ event, onClose }) {
     const mid = (a, d) => (a.length ? a[Math.floor(a.length / 2)] : d);
     return { w: mid(ws, (image?.width ?? 1000) * 0.03), h: mid(hs, (image?.width ?? 1000) * 0.018) };
   }, [pins, image]);
+  // Every pin is drawn the same size, matching the saved diagram.
+  const box = useMemo(() => uniformPitSize(pins, image?.width ?? 1000), [pins, image]);
 
   async function runOcr(img, size) {
     setStage('reading');
@@ -111,6 +114,7 @@ export default function ImageMapEditor({ event, onClose }) {
     onClose();
   }
 
+  const maxLabel = Math.max(3, ...pins.map((p) => labels.num(p.team).length));
   const hint = placing
     ? `Tap the map where team ${labels.num(placing)}'s pit is.`
     : selected
@@ -152,15 +156,15 @@ export default function ImageMapEditor({ event, onClose }) {
               <image href={image.dataUrl} x="0" y="0" width={image.width} height={image.height} />
               {pins.map((p) => {
                 const on = selected === p.team;
-                const w = Math.max(p.w * 1.35, image.width * 0.028);
-                const h = Math.max(p.h * 1.5, w * 0.55);
+                const w = box;
+                const h = box;
                 return (
                   <g key={p.team} onClick={(e) => { e.stopPropagation(); setPlacing(null); setSelected(on ? null : p.team); }}
                     style={{ cursor: 'pointer' }}>
                     <rect x={p.x - w / 2} y={p.y - h / 2} width={w} height={h} rx={h * 0.12}
                       style={{ fill: on ? 'var(--st-watch)' : 'var(--accent)', fillOpacity: 0.8, stroke: '#fff', strokeWidth: Math.max(1.5, w * 0.03) }} />
                     <text x={p.x} y={p.y} textAnchor="middle" dominantBaseline="central"
-                      style={{ fill: on ? '#16212c' : '#fff', fontWeight: 700, fontSize: h * 0.62 }}>
+                      style={{ fill: on ? '#16212c' : '#fff', fontWeight: 700, fontSize: Math.min(h * 0.42, (w * 0.88) / (maxLabel * 0.52)) }}>
                       {labels.num(p.team)}
                     </text>
                   </g>

@@ -79,6 +79,13 @@ export async function toggleCheckIn(eventKey, team, matchKey, current) {
 }
 
 /** Marks a team as not present so it always shows black and drops out of the priority list. */
+/** Saves how a pit map is turned (0/90/180/270), per map: `which` is 'nexus' or 'image'. */
+export async function setMapRotation(eventKey, which, degrees) {
+  const ev = await db.get('events', eventKey);
+  if (!ev) return;
+  await db.put('events', { ...ev, mapRotation: { ...(ev.mapRotation ?? {}), [which]: degrees } });
+}
+
 export async function setIgnored(eventKey, team, ignored, current) {
   const id = `${eventKey}:${team}`;
   const prev = current ?? { id, eventKey, team, radio: false, inspection: false, field: false };
@@ -226,6 +233,7 @@ function MapTab({ ctx, hasNexusMap, onRetry, syncing }) {
   // Which map to show when both exist; the Nexus one by default.
   const [source, setSource] = useState('nexus');
   const showImage = hasImageMap && (!hasNexusMap || source === 'image');
+  const imageDiagram = useMemo(() => (hasImageMap ? imageMapToPitMap(event.imageMap) : null), [hasImageMap, event.imageMap]);
   const imageEditor = editingImage && <ImageMapEditor event={event} onClose={() => setEditingImage(false)} />;
   const [find, setFind] = useState('');
   const [findOpen, setFindOpen] = useState(false);
@@ -320,11 +328,13 @@ function MapTab({ ctx, hasNexusMap, onRetry, syncing }) {
         </div>
       )}
       {showImage ? (
-        <PitMap map={imageMapToPitMap(event.imageMap)} colorFor={colorFor} highlight={highlight} labelFor={labels.num}
-          background={{ href: event.imageMap.dataUrl, width: event.imageMap.width, height: event.imageMap.height }}
+        <PitMap map={imageDiagram} colorFor={colorFor} highlight={highlight} labelFor={labels.num}
+          uniformText showAddresses={false}
+          rotation={event.mapRotation?.image ?? 0} onRotate={(deg) => setMapRotation(event.key, 'image', deg)}
           onSelect={(team) => nav(`/event/${event.key}/team/${team}`)} />
       ) : (
         <PitMap map={event.nexus.map} colorFor={colorFor} highlight={highlight} labelFor={labels.num}
+          rotation={event.mapRotation?.nexus ?? 0} onRotate={(deg) => setMapRotation(event.key, 'nexus', deg)}
           teamAddresses={event.nexus?.pits} onSelect={(team) => nav(`/event/${event.key}/team/${team}`)} />
       )}
       <Legend phase={phaseInfo.phase} />

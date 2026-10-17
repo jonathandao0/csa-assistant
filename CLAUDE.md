@@ -26,6 +26,12 @@ npm run preview   # http://localhost:4173, tests the PWA/offline build (also pro
 
 Requires Node 18+. There is no test suite yet.
 
+## Workflow (owner's standing instruction)
+
+- After finishing and verifying a change (build passes, behaviour checked), commit it, push the working branch, **and merge it into `main` automatically** — no need to ask first. The owner asked for this explicitly; keep doing it unless they say otherwise.
+- Merge as a fast-forward when `main` hasn't moved (`git push origin HEAD:main`); if it has, merge `main` into the branch first and resolve, then push.
+- Pushing `main` triggers the GitHub Pages deploy (`.github/workflows/deploy.yml`), which is how the owner gets the update on their phone (installed app: close and reopen once or twice).
+
 ## Stack and why
 
 The stack is **React 18 + Vite 5 + vite-plugin-pwa (generateSW) + idb + docx**, with fonts

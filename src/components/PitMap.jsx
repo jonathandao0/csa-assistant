@@ -72,6 +72,7 @@ export function rotateMap(map, degrees) {
     labels: each(map.labels),
     arrows: each(map.arrows, true),
     walls: each(map.walls),
+    aisles: (map.aisles ?? []).map((a) => turnItem(a, false)),
   };
 }
 
@@ -141,6 +142,14 @@ export default function PitMap({
       <div className="map-scroll">
         <svg viewBox={`0 0 ${W} ${H}`} style={{ width: `${zoom * 100}%`, height: 'auto' }}
           role="img" aria-label="Pit map">
+          {/* Hallways estimated for maps drawn from an image. */}
+          {(map.aisles ?? []).map((a, i) => {
+            const b = box(a);
+            return (
+              <rect key={`h${i}`} x={b.x - b.w / 2} y={b.y - b.h / 2} width={b.w} height={b.h} rx="8"
+                style={{ fill: 'var(--line)', opacity: 0.55 }} />
+            );
+          })}
           {Object.values(map.walls ?? {}).map((w, i) => {
             const b = box(w);
             return (

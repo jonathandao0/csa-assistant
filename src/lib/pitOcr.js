@@ -181,22 +181,117 @@ export function uniformPitSize(pins, imageWidth) {
   return Math.max(floor, Math.min(spacing * 0.9, typicalNumber * 2.2));
 }
 
-/** Builds the Nexus-shaped map JSON PitMap renders from a saved image map: a clean diagram
- *  of same-size square pits at the pinned spots (no photo), cropped to the pins plus a
- *  margin. Keyed by team. */
+const quantile = (values, q) => {
+  const a = [...values].sort((x, y) => x - y);
+  return a.length ? a[Math.floor((a.length - 1) * q)] : null;
+};
+
+/** Groups 1-D values: a gap bigger than `tol` between neighbours starts a new group.
+ *  Returns [{ center, members: [index...] }] in ascending order. */
+function cluster(values, tol) {
+  const order = values.map((v, i) => i).sort((a, b) => values[a] - values[b]);
+  const groups = [];
+  for (const i of order) {
+    const g = groups[groups.length - 1];
+    if (g && values[i] - values[g.members[g.members.length - 1]] <= tol) g.members.push(i);
+    else groups.push({ members: [i] });
+  }
+  for (const g of groups) g.center = g.members.reduce((t, i) => t + values[i], 0) / g.members.length;
+  return groups;
+}
+
+/** Spacing between pins in the same row (or column): the typical gap between neighbours. */
+function pitchWithin(groups, values) {
+  const gaps = [];
+  for (const g of groups) {
+    const v = g.members.map((i) => values[i]).sort((a, b) => a - b);
+    for (let k = 1; k < v.length; k++) gaps.push(v[k] - v[k - 1]);
+  }
+  return quantile(gaps, 0.25);
+}
+
+/** Grid index for each group: neighbours about one pitch apart sit next to each other
+ *  (back-to-back pits); a bigger gap leaves empty cells between them — a hallway. */
+function gridIndex(groups, pitch) {
+  const idx = [];
+  groups.forEach((g, k) => {
+    if (!k) return idx.push(0);
+    const steps = Math.max(1, Math.round((g.center - groups[k - 1].center) / pitch));
+    idx.push(idx[k - 1] + steps);
+  });
+  return idx;
+}
+
+/** Cells between consecutive used indexes, as [first, last] runs: hallways. */
+function emptyRuns(used) {
+  const runs = [];
+  for (let k = 1; k < used.length; k++) if (used[k] - used[k - 1] > 1) runs.push([used[k - 1] + 1, used[k] - 1]);
+  return runs;
+}
+
+export const GRID_CELL = 100;
+
+/**
+ * Builds the pit map PitMap renders from a saved image map, as a grid diagram (no photo):
+ * 1. OCR gave each team's number and where it is on the image (`pins`).
+ * 2. Pins are grouped into rows (by y) and columns (by x). The spacing between neighbouring
+ *    pins in a row/column is one pit; rows or columns further apart than that get empty grid
+ *    cells between them, drawn as hallways.
+ * 3. Each team gets one same-size square cell at its row/column.
+ * Pure: recomputed from the pins whenever they change, so the editor stays the source.
+ */
 export function imageMapToPitMap(imageMap) {
   const pins = imageMap.pins ?? [];
-  const s = uniformPitSize(pins, imageMap.width);
+  const empty = { size: { x: GRID_CELL, y: GRID_CELL }, pits: {}, areas: {}, labels: {}, arrows: {}, walls: {}, aisles: [] };
+  if (!pins.length) return empty;
   const xs = pins.map((p) => p.x);
   const ys = pins.map((p) => p.y);
-  const pad = s * 0.75;
-  const left = pins.length ? Math.min(...xs) - s / 2 - pad : 0;
-  const top = pins.length ? Math.min(...ys) - s / 2 - pad : 0;
-  const right = pins.length ? Math.max(...xs) + s / 2 + pad : imageMap.width;
-  const bottom = pins.length ? Math.max(...ys) + s / 2 + pad : imageMap.height;
+  // Pins closer than about half a pit are in the same row/column.
+  const nn = uniformPitSize(pins, imageMap.width) / 0.9;
+  const tol = Math.max(4, nn * 0.5);
+  const rows = cluster(ys, tol);
+  const cols = cluster(xs, tol);
+  let dx = pitchWithin(rows, xs);
+  let dy = pitchWithin(cols, ys);
+  dx ??= dy ?? nn;
+  dy ??= dx;
+  // A layout with every row separated by a hallway has no back-to-back rows to measure, so
+  // never treat the row pitch as more than ~1.6 pits (assume roughly square pits).
+  dy = Math.min(dy, dx * 1.6);
+  dx = Math.min(dx, dy * 1.6);
+  const rowIdx = gridIndex(rows, dy);
+  const colIdx = gridIndex(cols, dx);
+  const rowOf = new Map();
+  const colOf = new Map();
+  rows.forEach((g, k) => g.members.forEach((i) => rowOf.set(i, rowIdx[k])));
+  cols.forEach((g, k) => g.members.forEach((i) => colOf.set(i, colIdx[k])));
+
+  const nRows = rowIdx[rowIdx.length - 1] + 1;
+  const nCols = colIdx[colIdx.length - 1] + 1;
+  const margin = GRID_CELL * 0.5;
+  const at = (c) => margin + c * GRID_CELL + GRID_CELL / 2;
   const pits = {};
-  for (const p of pins) {
-    pits[`img-${p.team}`] = { position: { x: p.x - left, y: p.y - top }, size: { x: s, y: s }, team: String(p.team) };
-  }
-  return { size: { x: right - left, y: bottom - top }, pits, areas: {}, labels: {}, arrows: {}, walls: {} };
+  const taken = new Set();
+  pins.forEach((p, i) => {
+    let r = rowOf.get(i);
+    let c = colOf.get(i);
+    // Two teams snapped to one cell (crowded or skewed photo): use the next free cell in the row.
+    while (taken.has(`${r}:${c}`)) c += 1;
+    taken.add(`${r}:${c}`);
+    pits[`img-${p.team}`] = { position: { x: at(c), y: at(r) }, size: { x: GRID_CELL, y: GRID_CELL }, team: String(p.team) };
+  });
+  const width = margin * 2 + Math.max(nCols, ...[...taken].map((k) => Number(k.split(':')[1]) + 1)) * GRID_CELL;
+  const height = margin * 2 + nRows * GRID_CELL;
+  // Hallways: whole empty rows/columns between used ones, drawn as light bands.
+  const aisles = [
+    ...emptyRuns([...new Set(rowIdx)]).map(([a, b]) => ({
+      position: { x: width / 2, y: margin + ((a + b + 1) / 2) * GRID_CELL },
+      size: { x: width - margin, y: (b - a + 1) * GRID_CELL - GRID_CELL * 0.2 },
+    })),
+    ...emptyRuns([...new Set(colIdx)]).map(([a, b]) => ({
+      position: { x: margin + ((a + b + 1) / 2) * GRID_CELL, y: height / 2 },
+      size: { x: (b - a + 1) * GRID_CELL - GRID_CELL * 0.2, y: height - margin },
+    })),
+  ];
+  return { ...empty, size: { x: width, y: height }, pits, aisles };
 }

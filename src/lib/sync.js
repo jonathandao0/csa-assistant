@@ -22,6 +22,26 @@ export function parseRemap(remapTeams) {
   return { display, toNumber };
 }
 
+/** TBA alliances → [{ name, teams: [numbers], status }]. Teams are the picks plus a backup
+ *  robot that came in; status is TBA's 'playing' | 'eliminated' | 'won' (null if not given). */
+export function normalizeAlliances(list, toNumber = {}) {
+  if (!Array.isArray(list) || !list.length) return null;
+  const num = (k) => {
+    const raw = String(k).replace(/^frc/i, '').toUpperCase();
+    if (toNumber[raw]) return toNumber[raw];
+    return Number.isNaN(Number(raw)) ? raw : Number(raw);
+  };
+  return list.map((a, i) => {
+    const picks = (a.picks ?? []).map(num).filter(Boolean);
+    const backupIn = a.backup?.in ? [num(a.backup.in)] : [];
+    return {
+      name: a.name || `Alliance ${i + 1}`,
+      teams: [...picks, ...backupIn],
+      status: a.status?.status ?? null,
+    };
+  });
+}
+
 function normalizeMatch(m, toNumber = {}) {
   const red = m.alliances?.red ?? {};
   const blue = m.alliances?.blue ?? {};
@@ -77,10 +97,11 @@ export async function syncEvent(eventKey) {
   const existing = await db.get('events', key);
   const warnings = [];
 
-  const [evR, teamsR, matchesR] = await Promise.all([
+  const [evR, teamsR, matchesR, alliancesR] = await Promise.all([
     settle(tba(`/event/${key}`)),
     settle(tba(`/event/${key}/teams`)),
     settle(tba(`/event/${key}/matches/simple`)),
+    settle(tba(`/event/${key}/alliances`)),
   ]);
   const tbaError = evR.error ?? teamsR.error;
   // Nothing saved to fall back on: adding a new event needs TBA.
@@ -146,6 +167,8 @@ export async function syncEvent(eventKey) {
       .sort((a, b) => a.number - b.number),
     // A failed schedule request keeps the last good schedule rather than emptying it.
     matches: matches ? sortMatches(matches.map((m) => normalizeMatch(m, remap.toNumber))) : existing?.matches ?? [],
+    // Playoff alliances (null until alliance selection). A failed request keeps the last copy.
+    alliances: alliancesR.error ? existing?.alliances ?? null : normalizeAlliances(alliancesR.value, remap.toNumber),
     nexus: {
       enabled: hasNexusKey,
       map: map.value ?? existing?.nexus?.map ?? null,

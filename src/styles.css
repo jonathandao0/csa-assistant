@@ -20,6 +20,8 @@
   --st-watch-ink: #16212c;
   --st-ignored: #16212c;
   --st-ignored-ink: #ffffff;
+  --st-out: #c3cad2;
+  --st-out-ink: #56636f;
   --st-empty: #c9d1d9;
   --alliance-red: #c62828;
   --alliance-blue: #1565c0;
@@ -47,6 +49,8 @@
     --danger: #ff8a80;
     --st-ignored: #000000;
     --st-ignored-ink: #e6ebf0;
+    --st-out: #3a434d;
+    --st-out-ink: #9aa6b2;
     --st-empty: #3a4a58;
     --alliance-red: #ff7a7a;
     --alliance-blue: #74b0ff;
@@ -66,6 +70,8 @@
   --danger: #ff8a80;
   --st-ignored: #000000;
   --st-ignored-ink: #e6ebf0;
+  --st-out: #3a434d;
+  --st-out-ink: #9aa6b2;
   --st-empty: #3a4a58;
   --alliance-red: #ff7a7a;
   --alliance-blue: #74b0ff;

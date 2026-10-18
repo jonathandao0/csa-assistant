@@ -11,6 +11,7 @@ import {
   PRIORITY_WEIGHT,
   READINESS_ITEMS,
   competitionPhase,
+  playoffStatus,
   formatClock,
   matchLabel,
   matchTimeMs,
@@ -56,9 +57,14 @@ export function useEventContext(eventKey) {
       if (t.status === 'unresolved') (openByTeam[t.team] ??= []).push(t);
     }
     const phaseInfo = competitionPhase(event);
+    const playoffs = playoffStatus(event);
+    // Out of the playoffs: eliminated, or not on an alliance (only once we know who is).
+    const isOut = (team) => playoffs.known && !playoffs.alive.has(team);
     const colorFor = (team) =>
-      teamColor({ readiness: readiness[team], openTickets: openByTeam[team]?.length ?? 0, phase: phaseInfo.phase });
-    return { event, readiness, tickets, openByTeam, phaseInfo, colorFor };
+      teamColor({
+        readiness: readiness[team], openTickets: openByTeam[team]?.length ?? 0, phase: phaseInfo.phase, out: isOut(team),
+      });
+    return { event, readiness, tickets, openByTeam, phaseInfo, playoffs, isOut, colorFor };
   }, [event, readinessList, tickets]);
 }
 
@@ -421,6 +427,7 @@ function PhaseSwitch({ event, phaseInfo }) {
         <option value="">Auto ({PHASE_LABELS[phaseInfo.auto]})</option>
         <option value="practice">{PHASE_LABELS.practice}</option>
         <option value="event">{PHASE_LABELS.event}</option>
+        <option value="playoffs">{PHASE_LABELS.playoffs}</option>
       </select>
     </label>
   );
@@ -619,7 +626,8 @@ function readOpenCollapsed() {
 }
 
 function MatchPriorities({ ctx, sortBy, sortDir, resortToken }) {
-  const { event, openByTeam, readiness, colorFor } = ctx;
+  const { event, openByTeam, readiness, colorFor, phaseInfo, playoffs, isOut } = ctx;
+  const inPlayoffs = phaseInfo.phase === 'playoffs';
   const labels = useTeamLabels();
   const nexusTimes = useMemo(() => nexusTimesByMatchKey(event), [event]);
   const [openCollapsed, setOpenCollapsed] = useState(readOpenCollapsed);
@@ -682,7 +690,9 @@ function MatchPriorities({ ctx, sortBy, sortDir, resortToken }) {
       const next = nextMatch(event, number);
       return { t, open, next, hasOpen, nextIndex, slot };
     })
-    .filter(Boolean);
+    .filter(Boolean)
+    // Playoffs: only teams still playing (checked live, so an eliminated team drops out).
+    .filter((r) => !inPlayoffs || !isOut(r.t.number));
 
   const withOpen = byTeam ? [] : rows.filter((r) => r.hasOpen);
   // "Up next" lists every team, including ones already under Open tickets, so a team with
@@ -747,6 +757,17 @@ function MatchPriorities({ ctx, sortBy, sortDir, resortToken }) {
       {event.matches.length === 0 && (
         <div className="notice section">No match schedule on TBA yet. Refresh once the schedule is posted.</div>
       )}
+      {inPlayoffs && !playoffs.known && (
+        <div className="notice section">
+          The playoff alliances aren't on TBA yet, so every team is listed. Refresh after alliance selection.
+        </div>
+      )}
+      {inPlayoffs && playoffs.known && (
+        <p className="small muted section" style={{ marginTop: 0 }}>
+          Showing the {rows.length} team{rows.length === 1 ? '' : 's'} still in the playoffs
+          {playoffs.eliminated.size ? ` · ${playoffs.eliminated.size} eliminated` : ''}.
+        </p>
+      )}
       {withOpen.length > 0 && (
         <section className="section">
           <button className="section-head section-toggle" aria-expanded={!openCollapsed} onClick={toggleOpen}>
@@ -767,7 +788,7 @@ function MatchPriorities({ ctx, sortBy, sortDir, resortToken }) {
         </div>
         <ul className="row-list sheet">{rest.map((r) => <Row key={r.t.number} r={r} />)}</ul>
       </section>
-      <Legend phase="event" />
+      <Legend phase={inPlayoffs ? 'playoffs' : 'event'} />
     </>
   );
 }

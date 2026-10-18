@@ -150,7 +150,7 @@ between linked tickets remounts the page and resets the form.
 | Store | Key | Shape |
 |---|---|---|
 | `settings` | out-of-line key | `tbaKey`, `nexusKey`, `nexusBase`, `eventIndex:<year>` → `{fetchedAt, events[]}`, Drive sync: `googleClientId`, `driveConnected`, `driveFileId`, `driveLastSync`, `syncTombstones`, `syncCleared` |
-| `events` | `key` | `{key, name, shortName, year, eventType, startDate, endDate, city, stateProv, country, remapTeams, imageMap:{dataUrl, width, height, pins:[{team, x, y, w, h}], updatedAt}, teams[], matches[], nexus:{enabled, map, pits, live, inspection, error, check:{at, code, map, pits, live, inspection}}, nexusEventKey, dayOverride, phaseOverride, mapRotation:{nexus, image}, addedAt, fetchedAt}` |
+| `events` | `key` | `{key, name, shortName, year, eventType, startDate, endDate, city, stateProv, country, remapTeams, imageMap:{dataUrl, width, height, pins:[{team, x, y, w, h}], updatedAt}, teams[], matches[], nexus:{enabled, map, pits, live, inspection, error, check:{at, code, map, pits, live, inspection}}, alliances:[{name, teams[], status}], nexusEventKey, dayOverride, phaseOverride, mapRotation:{nexus, image}, addedAt, fetchedAt}` |
 | `readiness` | `id = "<eventKey>:<team>"` | `{eventKey, team, radio, inspection, field, ignored, notes, nexusApplied:{radio?, inspection?}, checkedInFor (match key), updatedAt}` |
 | `tickets` | `id` (uuid); indexes `eventKey`, `team` | `{eventKey, eventName, team:number, title, description, status, priority, tags[], lastMatch, resolution, links[], createdAt, updatedAt, resolvedAt}` |
 | `media` | `id = "<team>:<year>"` | TBA `{photos[] (direct URLs), avatar (data URL), fetchedAt}`, cached for 12 hours |
@@ -191,6 +191,7 @@ Changing the schema requires bumping the version in `openDB` and adding an upgra
   - `/event/{key}`
   - `/event/{key}/teams`
   - `/event/{key}/matches/simple`
+  - `/event/{key}/alliances` (playoff alliances: `picks`, `backup.in`, `status.status` = playing/eliminated/won). `normalizeAlliances()` in `sync.js` stores them as `event.alliances = [{name, teams[], status}]` (null before alliance selection; remap names like `971B` map back to the placeholder number; a failed request keeps the last copy).
   - `/team/frc{n}/media/{year}`
     - The robot photo comes from media of type `imgur`, `cdphotothread` or `instagram-image` that has a `direct_url`. Items marked `preferred` are used first.
     - The team avatar comes from media of type `avatar`, using `details.base64Image`.
@@ -289,20 +290,28 @@ Owner asked for cross-platform, cross-device data. Optional, per device, from Se
 This is calendar-only and only feeds the "Day X of Y" caption in the event page's top bar —
 it no longer decides which Priority list view shows (see **Competition phase** below).
 
-**Competition phase.** `competitionPhase(event, now)` decides Practice vs. Event using the TBA
-schedule, not the calendar day, so a rain delay or an early start doesn't fool it:
+**Competition phase.** `competitionPhase(event, now)` decides the phase from the TBA schedule,
+not the calendar day, so a rain delay or an early start doesn't fool it. Owner request: quals
+and playoffs are **separate phases**. Labels (`PHASE_LABELS`): `practice` = Load-In/Practice,
+`event` = Qualifications (the internal value predates the split; kept so saved overrides still
+work), `playoffs` = Playoffs.
 
-1. If any qualification match (`compLevel === 'qm'`) is marked `played`, the phase is `event`.
-2. Otherwise, if the first qualification match's scheduled time has passed, the phase is `event`.
+1. If TBA alliances are posted, or any playoff match (`compLevel !== 'qm'`) is `played` or past its scheduled time, the phase is `playoffs`.
+2. Otherwise, if any qualification match is `played`, or the first one's scheduled time has passed, the phase is `event`.
 3. Otherwise (including when there's no schedule posted yet), the phase is `practice`.
-4. `event.phaseOverride` (`'practice'` | `'event'` | `null`), set from the Priority list tab's
+4. `event.phaseOverride` (`'practice'` | `'event'` | `'playoffs'` | `null`), set from the Priority list tab's
    Phase dropdown, wins over all of that. The dropdown's "Auto (...)" option still shows what
    auto-detection currently thinks, even while overridden.
+
+**Playoffs.** `playoffStatus(event)` → `{known, alive, eliminated, allianceOf}` from `event.alliances` (an alliance with status `eliminated` is out); before alliances are posted it falls back to the teams in the playoff schedule, all alive (`known` false when there's neither). `useEventContext()` exposes `playoffs` and `isOut(team)` (known and not alive — eliminated or never picked). In the Playoffs phase:
+- the Priority list (same match-priority view as quals) lists **only teams still in the playoffs**, filtered live so an eliminated team drops out on the next refresh; a line says how many are shown/eliminated, or a notice says alliances aren't on TBA yet and lists everyone;
+- out teams are **gray** (`out`, CSS `--st-out`/`--st-out-ink`, both themes) on the pit map and everywhere `colorFor` is used; the Legend adds "Eliminated / not in playoffs".
 
 **Team color.** `teamColor({readiness, openTickets, phase})`:
 
 - A team marked `readiness.ignored` is always `ignored` (black), overriding everything else.
-- Otherwise, once the phase is `event`, any unresolved ticket gives `watch` (yellow).
+- Otherwise, in the Playoffs phase, a team that's out (`out` flag) is `out` (gray).
+- Otherwise, once the phase is `event` or `playoffs`, any unresolved ticket gives `watch` (yellow).
 - Otherwise the color depends on how many readiness items are done:
   - 3 → `ready`
   - 0 → `none`

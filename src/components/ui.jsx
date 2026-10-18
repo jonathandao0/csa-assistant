@@ -132,9 +132,11 @@ export function TicketRow({ ticket, showTeam = true, showEvent = false }) {
 }
 
 export function Legend({ phase }) {
-  const keys = phase === 'event'
-    ? ['ready', 'partial', 'none', 'watch', 'ignored']
-    : ['ready', 'partial', 'none', 'ignored'];
+  const keys = phase === 'playoffs'
+    ? ['ready', 'partial', 'none', 'watch', 'out', 'ignored']
+    : phase === 'event'
+      ? ['ready', 'partial', 'none', 'watch', 'ignored']
+      : ['ready', 'partial', 'none', 'ignored'];
   return (
     <div className="legend">
       {keys.map((k) => (

@@ -36,6 +36,7 @@ export const TEAM_COLORS = {
   none: { fill: 'var(--st-none)', text: 'var(--st-none-ink)', label: 'Not started' },
   watch: { fill: 'var(--st-watch)', text: 'var(--st-watch-ink)', label: 'Unresolved ticket' },
   ignored: { fill: 'var(--st-ignored)', text: 'var(--st-ignored-ink)', label: 'Ignored (not present)' },
+  out: { fill: 'var(--st-out)', text: 'var(--st-out-ink)', label: 'Eliminated / not in playoffs' },
 };
 
 // ---------- Event day ----------
@@ -67,19 +68,30 @@ export function dayCaption(info) {
   return `Day ${info.day} of ${info.len}`;
 }
 
-/** Whether the event is still in "practice" (no qualification matches played, and the
- *  first one hasn't started yet by schedule) or has moved into "event" (quals underway or
- *  done). Driven by the TBA schedule rather than the calendar day, so a rain delay or an
- *  early start doesn't fool it. `event.phaseOverride` ('practice' | 'event') wins if set. */
+const startedBySchedule = (m, now) => {
+  const startMs = ((m?.time ?? m?.predictedTime) || 0) * 1000;
+  return !!startMs && now.getTime() >= startMs;
+};
+
+/** Which part of the competition the event is in, from the TBA schedule rather than the
+ *  calendar day (so a rain delay or an early start doesn't fool it):
+ *  - 'practice': no qualification match played, and the first one hasn't started by schedule;
+ *  - 'event' (qualifications — the value predates playoffs being split out, kept so saved
+ *    overrides still work): quals underway or done;
+ *  - 'playoffs': alliances are picked (TBA alliances posted), or a playoff match has been
+ *    played or reached its scheduled time.
+ *  `event.phaseOverride` ('practice' | 'event' | 'playoffs') wins if set. */
 export function competitionPhase(event, now = new Date()) {
   const quals = event.matches.filter((m) => m.compLevel === 'qm');
+  const playoffs = event.matches.filter((m) => m.compLevel !== 'qm');
   const first = quals[0];
   let auto;
-  if (quals.some((m) => m.played)) {
+  if (event.alliances?.length || playoffs.some((m) => m.played) || startedBySchedule(playoffs[0], now)) {
+    auto = 'playoffs';
+  } else if (quals.some((m) => m.played)) {
     auto = 'event';
   } else if (first) {
-    const startMs = (first.time ?? first.predictedTime ?? 0) * 1000;
-    auto = startMs && now.getTime() >= startMs ? 'event' : 'practice';
+    auto = startedBySchedule(first, now) ? 'event' : 'practice';
   } else {
     auto = 'practice';
   }
@@ -87,9 +99,36 @@ export function competitionPhase(event, now = new Date()) {
   return { phase, auto, overridden: !!event.phaseOverride };
 }
 
-/** Display names for the two phases — the internal values ('practice' / 'event') stay as
- *  they are so existing `phaseOverride` data keeps working; only the on-screen wording changed. */
-export const PHASE_LABELS = { practice: 'Load-In/Practice', event: 'Quals/Playoffs' };
+/** Display names for the phases. The internal values stay as they are ('event' is
+ *  qualifications) so existing `phaseOverride` data keeps working. */
+export const PHASE_LABELS = { practice: 'Load-In/Practice', event: 'Qualifications', playoffs: 'Playoffs' };
+
+/**
+ * Who is still playing in the playoffs. From TBA's alliances (picks plus a backup robot
+ * that came in), each with a status: an alliance whose status is 'eliminated' is out.
+ * Before alliances are posted it falls back to the teams in the playoff schedule, all
+ * counted as still playing. `known` is false when there's nothing to go on yet.
+ * Returns { known, alive: Set, eliminated: Set, allianceOf: { team: name } }.
+ */
+export function playoffStatus(event) {
+  const alive = new Set();
+  const eliminated = new Set();
+  const allianceOf = {};
+  if (event.alliances?.length) {
+    for (const a of event.alliances) {
+      for (const t of a.teams) {
+        allianceOf[t] = a.name;
+        (a.status === 'eliminated' ? eliminated : alive).add(t);
+      }
+    }
+    return { known: true, alive, eliminated, allianceOf };
+  }
+  for (const m of event.matches) {
+    if (m.compLevel === 'qm') continue;
+    for (const t of [...m.red, ...m.blue]) alive.add(t);
+  }
+  return { known: alive.size > 0, alive, eliminated, allianceOf };
+}
 
 export function phaseCaption(info) {
   const label = PHASE_LABELS[info.phase] ?? info.phase;
@@ -103,12 +142,14 @@ export function readinessCount(r) {
   return READINESS_ITEMS.filter(([k]) => r[k]).length;
 }
 
-/** During practice, colors reflect readiness only. Once the event phase starts, an
- *  unresolved ticket turns the team yellow. A team marked ignored (didn't show up) is
- *  always black, overriding everything else. */
-export function teamColor({ readiness, openTickets, phase }) {
+/** During practice, colors reflect readiness only. From qualifications on, an unresolved
+ *  ticket turns the team yellow. In the playoffs a team that's eliminated or wasn't picked
+ *  (`out`) is gray. A team marked ignored (didn't show up) is always black, overriding
+ *  everything else. */
+export function teamColor({ readiness, openTickets, phase, out = false }) {
   if (readiness?.ignored) return 'ignored';
-  if (phase === 'event' && openTickets > 0) return 'watch';
+  if (phase === 'playoffs' && out) return 'out';
+  if ((phase === 'event' || phase === 'playoffs') && openTickets > 0) return 'watch';
   const c = readinessCount(readiness);
   if (c === 3) return 'ready';
   if (c === 0) return 'none';

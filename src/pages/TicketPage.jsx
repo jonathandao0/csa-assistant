@@ -7,6 +7,7 @@ import {
   TAG_CATEGORIES,
   TICKET_STATUS,
   autoTags,
+  competitionPhase,
   formatDateTime,
   lastPlayedMatch,
   matchLabel,
@@ -225,6 +226,8 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
       links,
       id: ticketId,
       seq: existing?.seq ?? form.seq ?? nextTicketSeq(allTickets, form.team, Number(eventKey.slice(0, 4))),
+      // The competition phase it was logged in (shown on the Tickets tab); kept on edits.
+      phase: existing?.phase ?? (event ? competitionPhase(event).phase : null),
       title: form.title.trim(),
       eventName: existing?.eventName ?? event?.shortName ?? eventKey,
       createdAt: existing?.createdAt ?? now,

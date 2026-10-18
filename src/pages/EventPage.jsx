@@ -11,6 +11,8 @@ import {
   PRIORITY_WEIGHT,
   READINESS_ITEMS,
   competitionPhase,
+  PHASE_SHORT,
+  ticketPhase,
   playoffStatus,
   formatClock,
   matchLabel,
@@ -863,13 +865,18 @@ const FILTERS = [
 ];
 
 function TicketsTab({ ctx, onExport, exporting }) {
-  const { event, tickets } = ctx;
+  const { event, tickets, phaseInfo, isOut } = ctx;
   const labels = useTeamLabels();
   const [importing, setImporting] = useState(false);
   const [filter, setFilter] = useState('all');
+  const [phaseFilter, setPhaseFilter] = useState('all');
+  // Tickets for teams out of the playoffs: their own section, closed by default.
+  const [outOpen, setOutOpen] = useState(false);
   const [q, setQ] = useState('');
+  const phaseOf = useMemo(() => Object.fromEntries(tickets.map((t) => [t.id, ticketPhase(t, event)])), [tickets, event]);
   const shown = sortTickets(tickets).filter((t) => {
     if (filter !== 'all' && t.status !== filter) return false;
+    if (phaseFilter !== 'all' && phaseOf[t.id] !== phaseFilter) return false;
     if (!q) return true;
     const s = q.toLowerCase();
     return (
@@ -879,6 +886,11 @@ function TicketsTab({ ctx, onExport, exporting }) {
       t.tags?.some((tag) => tag.toLowerCase().includes(s))
     );
   });
+
+  // In the playoffs, tickets of eliminated (or unpicked) teams move to their own section.
+  const splitOut = phaseInfo.phase === 'playoffs';
+  const shownOut = splitOut ? shown.filter((t) => isOut(t.team)) : [];
+  const shownIn = splitOut ? shown.filter((t) => !isOut(t.team)) : shown;
 
   return (
     <>
@@ -897,12 +909,39 @@ function TicketsTab({ ctx, onExport, exporting }) {
           </button>
         ))}
       </div>
+      <div className="inline" style={{ marginBottom: 10 }} role="group" aria-label="Filter by phase">
+        {[['all', 'All phases'], ...Object.entries(PHASE_SHORT)].map(([k, l]) => (
+          <button key={k} className="chip" aria-pressed={phaseFilter === k} onClick={() => setPhaseFilter(k)}>
+            {l} ({k === 'all' ? tickets.length : tickets.filter((t) => phaseOf[t.id] === k).length})
+          </button>
+        ))}
+      </div>
       <input className="input" style={{ marginBottom: 12 }} placeholder="Search team, title, or tag"
         value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search tickets" />
       {shown.length ? (
-        <ul className="row-list sheet">
-          {shown.map((t) => <TicketRow key={t.id} ticket={t} />)}
-        </ul>
+        <>
+          {shownIn.length > 0 && (
+            <ul className="row-list sheet">
+              {shownIn.map((t) => <TicketRow key={t.id} ticket={t} phase={phaseOf[t.id]} />)}
+            </ul>
+          )}
+          {shownOut.length > 0 && (
+            <section className="section" style={{ marginTop: shownIn.length ? 16 : 0 }}>
+              <button className="section-head section-toggle" aria-expanded={outOpen} onClick={() => setOutOpen((o) => !o)}>
+                <h2>Teams out of the playoffs</h2>
+                <span className="aside">
+                  {shownOut.length} ticket{shownOut.length === 1 ? '' : 's'}
+                  <span className="led-chevron"><Icon name="chevron" size={18} /></span>
+                </span>
+              </button>
+              {outOpen && (
+                <ul className="row-list sheet">
+                  {shownOut.map((t) => <TicketRow key={t.id} ticket={t} phase={phaseOf[t.id]} />)}
+                </ul>
+              )}
+            </section>
+          )}
+        </>
       ) : (
         <p className="muted">
           {tickets.length ? 'No tickets match this filter.' : 'No tickets yet. Log the first one when a team asks for help.'}

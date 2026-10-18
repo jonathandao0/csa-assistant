@@ -183,6 +183,28 @@ export function playoffStatus(event) {
   return { known: true, source: found.source, alive, eliminated, allianceOf };
 }
 
+/** Short phase names for ticket tags and filters. */
+export const PHASE_SHORT = { practice: 'Practice', event: 'Quals', playoffs: 'Playoffs' };
+
+/**
+ * The phase a ticket was logged in. New tickets store it (`ticket.phase`). For older ones it's
+ * worked out from the ticket's last match (Q… = quals, a playoff match = playoffs), else from
+ * when it was created against the schedule (first quals / first playoff match start).
+ */
+export function ticketPhase(ticket, event) {
+  if (ticket.phase) return ticket.phase;
+  const lm = String(ticket.lastMatch ?? '').trim().toUpperCase();
+  if (/^Q\d+$/.test(lm)) return 'event';
+  if (/^(M\d+|SF\d|QF\d|EF\d|F\d)/.test(lm)) return 'playoffs';
+  const startOf = (m) => (m ? ((m.actualTime ?? m.time ?? m.predictedTime) || 0) * 1000 : 0);
+  const matches = event?.matches ?? [];
+  const playoffStart = startOf(matches.find((m) => m.compLevel !== 'qm'));
+  const qualsStart = startOf(matches.find((m) => m.compLevel === 'qm'));
+  if (playoffStart && ticket.createdAt >= playoffStart) return 'playoffs';
+  if (qualsStart && ticket.createdAt >= qualsStart) return 'event';
+  return qualsStart ? 'practice' : 'event';
+}
+
 export function phaseCaption(info) {
   const label = PHASE_LABELS[info.phase] ?? info.phase;
   return info.overridden ? `${label} (set manually)` : label;

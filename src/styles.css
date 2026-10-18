@@ -1104,3 +1104,15 @@ textarea.input {
   max-width: calc(100% - 32px);
   box-shadow: 0 6px 20px rgb(0 0 0 / 0.25);
 }
+
+/* Phase a ticket was logged in (Tickets tab): outlined so it reads apart from issue tags. */
+.tag.phase-tag {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-weight: 600;
+}
+.tag.phase-tag.playoffs {
+  border-color: var(--accent);
+  color: var(--accent);
+}

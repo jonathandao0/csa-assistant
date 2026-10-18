@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { PRIORITIES, READINESS_ITEMS, TEAM_COLORS, TICKET_STATUS, formatDateTime, ticketNumber } from '../lib/logic.js';
+import { PHASE_SHORT, PRIORITIES, READINESS_ITEMS, TEAM_COLORS, TICKET_STATUS, formatDateTime, ticketNumber } from '../lib/logic.js';
 import { nav } from '../lib/router.js';
 import { useTeamLabels } from '../lib/teamLabels.js';
 
@@ -99,7 +99,8 @@ export function StatusPill({ status }) {
 
 const prioLabel = Object.fromEntries(PRIORITIES);
 
-export function TicketRow({ ticket, showTeam = true, showEvent = false }) {
+/** `phase` ('practice' | 'event' | 'playoffs') adds a phase tag in front of the ticket's tags. */
+export function TicketRow({ ticket, showTeam = true, showEvent = false, phase = null }) {
   const labels = useTeamLabels(ticket.eventKey);
   const num = labels.num(ticket.team);
   return (
@@ -114,9 +115,10 @@ export function TicketRow({ ticket, showTeam = true, showEvent = false }) {
             {ticket.lastMatch ? ` · after ${ticket.lastMatch}` : ''}
             {ticket.links?.length ? ` · ${ticket.links.length} linked` : ''}
           </div>
-          {ticket.tags?.length > 0 && (
+          {(ticket.tags?.length > 0 || phase) && (
             <div className="inline" style={{ gap: 4, marginTop: 4 }}>
-              {ticket.tags.map((t) => (
+              {phase && <span className={`tag phase-tag ${phase}`}>{PHASE_SHORT[phase]}</span>}
+              {(ticket.tags ?? []).map((t) => (
                 <span className="tag" key={t}>{t}</span>
               ))}
             </div>

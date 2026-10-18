@@ -104,30 +104,33 @@ export function competitionPhase(event, now = new Date()) {
 export const PHASE_LABELS = { practice: 'Load-In/Practice', event: 'Qualifications', playoffs: 'Playoffs' };
 
 /**
- * Who is still playing in the playoffs. From TBA's alliances (picks plus a backup robot
- * that came in), each with a status: an alliance whose status is 'eliminated' is out.
- * Before alliances are posted it falls back to the teams in the playoff schedule, all
- * counted as still playing. `known` is false when there's nothing to go on yet.
+ * Who is still playing in the playoffs, from TBA's alliances: every pick (captain, 1st, 2nd
+ * and — in 4-team alliances — 3rd pick) plus a backup robot that came in. An alliance whose
+ * status is 'eliminated' is out. A team on no alliance that's in an upcoming playoff match
+ * also counts as still playing, in case TBA's alliance list lags behind a substitution.
+ *
+ * Without alliance data nothing is known (`known: false`): the playoff match lineups alone
+ * can't tell an unpicked team from a 3rd pick who hasn't played yet, so nobody is marked out.
  * Returns { known, alive: Set, eliminated: Set, allianceOf: { team: name } }.
  */
 export function playoffStatus(event) {
   const alive = new Set();
   const eliminated = new Set();
   const allianceOf = {};
-  if (event.alliances?.length) {
-    for (const a of event.alliances) {
-      for (const t of a.teams) {
-        allianceOf[t] = a.name;
-        (a.status === 'eliminated' ? eliminated : alive).add(t);
-      }
+  if (!event.alliances?.length) return { known: false, alive, eliminated, allianceOf };
+  for (const a of event.alliances) {
+    for (const t of a.teams) {
+      allianceOf[t] = a.name;
+      (a.status === 'eliminated' ? eliminated : alive).add(t);
     }
-    return { known: true, alive, eliminated, allianceOf };
   }
   for (const m of event.matches) {
-    if (m.compLevel === 'qm') continue;
-    for (const t of [...m.red, ...m.blue]) alive.add(t);
+    if (m.compLevel === 'qm' || m.played) continue;
+    // Only teams on no alliance (a substitute): an unneeded tiebreaker TBA leaves on the
+    // schedule mustn't bring an eliminated alliance back.
+    for (const t of [...m.red, ...m.blue]) if (!(t in allianceOf)) alive.add(t);
   }
-  return { known: alive.size > 0, alive, eliminated, allianceOf };
+  return { known: true, alive, eliminated, allianceOf };
 }
 
 export function phaseCaption(info) {

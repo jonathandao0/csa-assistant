@@ -759,13 +759,15 @@ function MatchPriorities({ ctx, sortBy, sortDir, resortToken }) {
       )}
       {inPlayoffs && !playoffs.known && (
         <div className="notice section">
-          The playoff alliances aren't on TBA yet, so every team is listed. Refresh after alliance selection.
+          The playoff alliances aren't on The Blue Alliance or FRC Nexus yet, so every team is listed. Refresh after
+          alliance selection.
         </div>
       )}
       {inPlayoffs && playoffs.known && (
         <p className="small muted section" style={{ marginTop: 0 }}>
           Showing the {rows.length} team{rows.length === 1 ? '' : 's'} still in the playoffs
-          {playoffs.eliminated.size ? ` · ${playoffs.eliminated.size} eliminated` : ''}.
+          {playoffs.eliminated.size ? ` · ${playoffs.eliminated.size} eliminated` : ''}
+          {' '}(alliances from {playoffs.source === 'tba' ? 'The Blue Alliance' : 'FRC Nexus'}).
         </p>
       )}
       {withOpen.length > 0 && (

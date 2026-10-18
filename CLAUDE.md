@@ -150,7 +150,7 @@ between linked tickets remounts the page and resets the form.
 | Store | Key | Shape |
 |---|---|---|
 | `settings` | out-of-line key | `tbaKey`, `nexusKey`, `nexusBase`, `eventIndex:<year>` → `{fetchedAt, events[]}`, Drive sync: `googleClientId`, `driveConnected`, `driveFileId`, `driveLastSync`, `syncTombstones`, `syncCleared` |
-| `events` | `key` | `{key, name, shortName, year, eventType, startDate, endDate, city, stateProv, country, remapTeams, imageMap:{dataUrl, width, height, pins:[{team, x, y, w, h}], updatedAt}, teams[], matches[], nexus:{enabled, map, pits, live, inspection, error, check:{at, code, map, pits, live, inspection}}, alliances:[{name, teams[], status}], nexusEventKey, dayOverride, phaseOverride, mapRotation:{nexus, image}, addedAt, fetchedAt}` |
+| `events` | `key` | `{key, name, shortName, year, eventType, startDate, endDate, city, stateProv, country, remapTeams, imageMap:{dataUrl, width, height, pins:[{team, x, y, w, h}], updatedAt}, teams[], matches[], nexus:{enabled, map, pits, live, inspection, alliances, error, check:{at, code, map, pits, live, inspection}}, alliances:[{name, teams[], status}], nexusEventKey, dayOverride, phaseOverride, mapRotation:{nexus, image}, addedAt, fetchedAt}` |
 | `readiness` | `id = "<eventKey>:<team>"` | `{eventKey, team, radio, inspection, field, ignored, notes, nexusApplied:{radio?, inspection?}, checkedInFor (match key), updatedAt}` |
 | `tickets` | `id` (uuid); indexes `eventKey`, `team` | `{eventKey, eventName, team:number, title, description, status, priority, tags[], lastMatch, resolution, links[], createdAt, updatedAt, resolvedAt}` |
 | `media` | `id = "<team>:<year>"` | TBA `{photos[] (direct URLs), avatar (data URL), fetchedAt}`, cached for 12 hours |
@@ -160,7 +160,7 @@ between linked tickets remounts the page and resets the form.
 Details of the `events` store:
 
 - Each entry in `teams[]` is `{number, nickname, name, schoolName, city, stateProv, country, rookieYear, website}`.
-- Each entry in `matches[]` is normalized to `{key, compLevel, setNumber, matchNumber, red[], blue[], redScore, blueScore, time, predictedTime, actualTime, played}`.
+- Each entry in `matches[]` is normalized to `{key, compLevel, setNumber, matchNumber, red[], blue[], redScore, blueScore, winner ('red'|'blue'|null), time, predictedTime, actualTime, played}`.
 - `matches[]` is sorted qm → ef → qf → sf → f.
 - A match counts as `played` if `actual_time` is set or the red score is ≥ 0.
 
@@ -209,6 +209,7 @@ Changing the schema requires bumping the version in `openDB` and adding an upgra
   - `/event/{key}/pits` (team number → pit address)
   - `/event/{key}/map`
   - `/event/{key}/inspection`
+  - `/event/{key}/alliances` (playoff alliances by seed: `Array<Array<string|null>|null>`, partial during selection — shape from third-party reports since the docs weren't reachable; `normalizeNexusAlliances()` also accepts `{name, teams}` objects). Stored as `event.nexus.alliances` (same `[{name, teams, status: null}]` shape as TBA's); a failure isn't reported as a Nexus error and keeps the last copy. **Nexus has no scores or winners.**
   - `/events` (only used to test the key)
 - **Map JSON:** `{size, pits, areas, labels, arrows, walls}`.
   - Each item has `position` (the **center**) and `size`.
@@ -296,14 +297,14 @@ and playoffs are **separate phases**. Labels (`PHASE_LABELS`): `practice` = Load
 `event` = Qualifications (the internal value predates the split; kept so saved overrides still
 work), `playoffs` = Playoffs.
 
-1. If TBA alliances are posted, or any playoff match (`compLevel !== 'qm'`) is `played` or past its scheduled time, the phase is `playoffs`.
+1. If playoff alliances are posted (TBA or Nexus), or any playoff match (`compLevel !== 'qm'`) is `played` or past its scheduled time, the phase is `playoffs`.
 2. Otherwise, if any qualification match is `played`, or the first one's scheduled time has passed, the phase is `event`.
 3. Otherwise (including when there's no schedule posted yet), the phase is `practice`.
 4. `event.phaseOverride` (`'practice'` | `'event'` | `'playoffs'` | `null`), set from the Priority list tab's
    Phase dropdown, wins over all of that. The dropdown's "Auto (...)" option still shows what
    auto-detection currently thinks, even while overridden.
 
-**Playoffs.** `playoffStatus(event)` → `{known, alive, eliminated, allianceOf}` from `event.alliances`: every pick (incl. the **3rd pick in 4-team alliances**) plus a backup robot that came in; an alliance with status `eliminated` is out. A team on *no* alliance that's in an unplayed playoff match also counts as alive (a substitute TBA's list hasn't caught up with), but an unplayed match never revives an eliminated alliance (TBA can leave an unneeded tiebreaker on the schedule). **Without alliance data `known` is false and nobody is marked out** — playoff match lineups alone can't tell an unpicked team from a 3rd pick who hasn't played (this used to gray out 3rd picks). `useEventContext()` exposes `playoffs` and `isOut(team)` (known and not alive — eliminated or never picked). In the Playoffs phase:
+**Playoffs.** Owner request: use TBA or Nexus to tell who's in the playoffs / eliminated, **TBA first when both have data**. `playoffAlliances(event)` picks `event.alliances` (TBA) if posted, else `event.nexus.alliances`. An alliance's elimination comes from TBA's `status` when it has one; otherwise (always for Nexus; often for offseason TBA events) `eliminatedFromResults()` works it out from TBA playoff match results (`match.winner` from TBA's `winning_alliance`, else the higher score; each side mapped to the alliance owning most of its teams): from 2023 on, double elimination — 2 losses across the `sf` bracket is out, and 2 finals losses is out; older/other formats — 2 losses in one series (`compLevel`+`setNumber`) is out. Without TBA match results nobody is marked eliminated (Nexus alone only gives membership). `playoffStatus(event)` → `{known, source ('tba'|'nexus'), alive, eliminated, allianceOf}`; the priority list says which source it used. Membership: every pick (incl. the **3rd pick in 4-team alliances**) plus a backup robot that came in; an alliance with status `eliminated` is out. A team on *no* alliance that's in an unplayed playoff match also counts as alive (a substitute TBA's list hasn't caught up with), but an unplayed match never revives an eliminated alliance (TBA can leave an unneeded tiebreaker on the schedule). **Without alliance data `known` is false and nobody is marked out** — playoff match lineups alone can't tell an unpicked team from a 3rd pick who hasn't played (this used to gray out 3rd picks). `useEventContext()` exposes `playoffs` and `isOut(team)` (known and not alive — eliminated or never picked). In the Playoffs phase:
 - the Priority list (same match-priority view as quals) lists **only teams still in the playoffs**, filtered live so an eliminated team drops out on the next refresh; a line says how many are shown/eliminated, or a notice says alliances aren't on TBA yet and lists everyone;
 - out teams are **gray** (`out`, CSS `--st-out`/`--st-out-ink`, both themes) on the pit map and everywhere `colorFor` is used; the Legend adds "Eliminated / not in playoffs".
 

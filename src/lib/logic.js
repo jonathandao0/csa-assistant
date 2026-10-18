@@ -78,7 +78,7 @@ const startedBySchedule = (m, now) => {
  *  - 'practice': no qualification match played, and the first one hasn't started by schedule;
  *  - 'event' (qualifications — the value predates playoffs being split out, kept so saved
  *    overrides still work): quals underway or done;
- *  - 'playoffs': alliances are picked (TBA alliances posted), or a playoff match has been
+ *  - 'playoffs': alliances are picked (posted on TBA or Nexus), or a playoff match has been
  *    played or reached its scheduled time.
  *  `event.phaseOverride` ('practice' | 'event' | 'playoffs') wins if set. */
 export function competitionPhase(event, now = new Date()) {
@@ -86,7 +86,7 @@ export function competitionPhase(event, now = new Date()) {
   const playoffs = event.matches.filter((m) => m.compLevel !== 'qm');
   const first = quals[0];
   let auto;
-  if (event.alliances?.length || playoffs.some((m) => m.played) || startedBySchedule(playoffs[0], now)) {
+  if (playoffAlliances(event) || playoffs.some((m) => m.played) || startedBySchedule(playoffs[0], now)) {
     auto = 'playoffs';
   } else if (quals.some((m) => m.played)) {
     auto = 'event';
@@ -103,34 +103,84 @@ export function competitionPhase(event, now = new Date()) {
  *  qualifications) so existing `phaseOverride` data keeps working. */
 export const PHASE_LABELS = { practice: 'Load-In/Practice', event: 'Qualifications', playoffs: 'Playoffs' };
 
+/** Which playoff alliances to use: The Blue Alliance's when posted, otherwise FRC Nexus's.
+ *  Returns { source: 'tba' | 'nexus', list } or null. */
+export function playoffAlliances(event) {
+  if (event.alliances?.length) return { source: 'tba', list: event.alliances };
+  if (event.nexus?.alliances?.length) return { source: 'nexus', list: event.nexus.alliances };
+  return null;
+}
+
+/** The side that won a match: TBA's winner (covers tiebreakers), else the higher score. */
+function matchWinner(m) {
+  if (m.winner) return m.winner;
+  if (!m.played || m.redScore < 0 || m.blueScore < 0 || m.redScore === m.blueScore) return null;
+  return m.redScore > m.blueScore ? 'red' : 'blue';
+}
+
 /**
- * Who is still playing in the playoffs, from TBA's alliances: every pick (captain, 1st, 2nd
- * and — in 4-team alliances — 3rd pick) plus a backup robot that came in. An alliance whose
- * status is 'eliminated' is out. A team on no alliance that's in an upcoming playoff match
- * also counts as still playing, in case TBA's alliance list lags behind a substitution.
+ * Alliances knocked out, worked out from TBA's playoff match results — for when the alliance
+ * list has no status (Nexus never does; TBA often doesn't at offseason events).
+ * - Double elimination (2023 on): playoff ('sf') matches are single games, and a second loss
+ *   is out. Finals are best of three: two finals losses is out.
+ * - Older/other formats (ef/qf/sf series): two losses within one series is out.
+ * Each side is matched to its alliance by most of its teams. Returns a Set of alliance names.
+ */
+export function eliminatedFromResults(event, allianceOf) {
+  const doubleElim = (event.year ?? Number(String(event.key).slice(0, 4))) >= 2023;
+  const losses = {};
+  const sideAlliance = (teams) => {
+    const count = {};
+    for (const t of teams) if (allianceOf[t]) count[allianceOf[t]] = (count[allianceOf[t]] ?? 0) + 1;
+    const best = Object.entries(count).sort((x, y) => y[1] - x[1])[0];
+    return best && best[1] * 2 > teams.length ? best[0] : null;
+  };
+  for (const m of event.matches) {
+    if (m.compLevel === 'qm') continue;
+    const won = matchWinner(m);
+    if (!won) continue;
+    const loser = sideAlliance(won === 'red' ? m.blue : m.red);
+    if (!loser) continue;
+    const bucket = m.compLevel === 'f' ? 'f' : doubleElim && m.compLevel === 'sf' ? 'bracket' : `${m.compLevel}${m.setNumber}`;
+    const k = `${loser}|${bucket}`;
+    losses[k] = (losses[k] ?? 0) + 1;
+  }
+  const out = new Set();
+  for (const [k, n] of Object.entries(losses)) if (n >= 2) out.add(k.split('|')[0]);
+  return out;
+}
+
+/**
+ * Who is still playing in the playoffs. Alliances come from The Blue Alliance when posted,
+ * otherwise FRC Nexus (`playoffAlliances`): every pick (captain, 1st, 2nd and — in 4-team
+ * alliances — 3rd pick) plus a backup robot that came in. An alliance is out when TBA's status
+ * says 'eliminated'; when there's no status (Nexus, or TBA without one) it's worked out from
+ * TBA's match results (`eliminatedFromResults`). A team on no alliance that's in an upcoming
+ * playoff match also counts as still playing (a substitute the list hasn't caught up with).
  *
  * Without alliance data nothing is known (`known: false`): the playoff match lineups alone
  * can't tell an unpicked team from a 3rd pick who hasn't played yet, so nobody is marked out.
- * Returns { known, alive: Set, eliminated: Set, allianceOf: { team: name } }.
+ * Returns { known, source, alive: Set, eliminated: Set, allianceOf: { team: name } }.
  */
 export function playoffStatus(event) {
   const alive = new Set();
   const eliminated = new Set();
   const allianceOf = {};
-  if (!event.alliances?.length) return { known: false, alive, eliminated, allianceOf };
-  for (const a of event.alliances) {
-    for (const t of a.teams) {
-      allianceOf[t] = a.name;
-      (a.status === 'eliminated' ? eliminated : alive).add(t);
-    }
+  const found = playoffAlliances(event);
+  if (!found) return { known: false, source: null, alive, eliminated, allianceOf };
+  for (const a of found.list) for (const t of a.teams) allianceOf[t] = a.name;
+  const fromResults = eliminatedFromResults(event, allianceOf);
+  for (const a of found.list) {
+    const out = a.status ? a.status === 'eliminated' : fromResults.has(a.name);
+    for (const t of a.teams) (out ? eliminated : alive).add(t);
   }
   for (const m of event.matches) {
     if (m.compLevel === 'qm' || m.played) continue;
-    // Only teams on no alliance (a substitute): an unneeded tiebreaker TBA leaves on the
-    // schedule mustn't bring an eliminated alliance back.
+    // Only teams on no alliance (a substitute): an unneeded tiebreaker left on the schedule
+    // mustn't bring an eliminated alliance back.
     for (const t of [...m.red, ...m.blue]) if (!(t in allianceOf)) alive.add(t);
   }
-  return { known: true, alive, eliminated, allianceOf };
+  return { known: true, source: found.source, alive, eliminated, allianceOf };
 }
 
 export function phaseCaption(info) {

@@ -42,6 +42,29 @@ export function normalizeAlliances(list, toNumber = {}) {
   });
 }
 
+/** Nexus alliances → the same shape as TBA's ([{ name, teams, status: null }]). Nexus lists
+ *  them by seed as arrays of team-number strings, with nulls while selection is under way;
+ *  it has no results, so there's never a status. Also accepts objects with a teams list. */
+export function normalizeNexusAlliances(list, toNumber = {}) {
+  if (!Array.isArray(list)) return null;
+  const num = (k) => {
+    const raw = String(k).replace(/^frc/i, '').trim().toUpperCase();
+    if (/^\d+$/.test(raw)) return Number(raw);
+    return toNumber[raw] ?? raw;
+  };
+  const out = list
+    .map((a, i) => {
+      const teams = Array.isArray(a) ? a : a?.teams ?? a?.picks ?? [];
+      return {
+        name: (!Array.isArray(a) && a?.name) || `Alliance ${i + 1}`,
+        teams: teams.filter((t) => t != null && t !== '').map(num),
+        status: null,
+      };
+    })
+    .filter((a) => a.teams.length);
+  return out.length ? out : null;
+}
+
 function normalizeMatch(m, toNumber = {}) {
   const red = m.alliances?.red ?? {};
   const blue = m.alliances?.blue ?? {};
@@ -62,6 +85,8 @@ function normalizeMatch(m, toNumber = {}) {
     blue: (blue.team_keys ?? []).map(num),
     redScore: red.score ?? -1,
     blueScore: blue.score ?? -1,
+    // 'red' | 'blue' | null — TBA's winner, which also covers playoff ties broken by tiebreakers.
+    winner: m.winning_alliance === 'red' || m.winning_alliance === 'blue' ? m.winning_alliance : null,
     time: m.time ?? null,
     predictedTime: m.predicted_time ?? null,
     actualTime: m.actual_time ?? null,
@@ -116,14 +141,15 @@ export async function syncEvent(eventKey) {
   // Nexus sometimes files an event under a different code than TBA (common for offseason
   // events, e.g. TBA 2026cass vs. Nexus 2026cael); the per-event override wins.
   const nexusCode = existing?.nexusEventKey || key;
-  const [map, pits, live, inspection] = hasNexusKey
+  const [map, pits, live, inspection, nexusAlliances] = hasNexusKey
     ? await Promise.all([
         settle(nexus(`/event/${nexusCode}/map`)),
         settle(nexus(`/event/${nexusCode}/pits`)),
         settle(nexus(`/event/${nexusCode}`)),
         settle(nexus(`/event/${nexusCode}/inspection`)),
+        settle(nexus(`/event/${nexusCode}/alliances`)),
       ])
-    : [{}, {}, {}, {}];
+    : [{}, {}, {}, {}, {}];
 
   const nexusError = [map, pits, live, inspection].find((r) => r.error)?.error ?? null;
   // What each Nexus endpoint returned this time, for the Nexus data check panel.
@@ -175,6 +201,11 @@ export async function syncEvent(eventKey) {
       pits: pits.value ?? existing?.nexus?.pits ?? null,
       live: live.value ?? existing?.nexus?.live ?? null,
       inspection: inspection.value ?? existing?.nexus?.inspection ?? null,
+      // Playoff alliances from Nexus, used when TBA hasn't posted them. Not counted as a
+      // Nexus error if it fails (many events never use it); the last copy is kept.
+      alliances: nexusAlliances.error
+        ? existing?.nexus?.alliances ?? null
+        : normalizeNexusAlliances(nexusAlliances.value, remap.toNumber) ?? (hasNexusKey ? null : existing?.nexus?.alliances ?? null),
       error: nexusError,
       check: nexusCheck,
     },
@@ -308,7 +339,7 @@ export async function setNexusEventKey(eventKey, code) {
   await db.put('events', {
     ...event,
     nexusEventKey,
-    nexus: { ...event.nexus, map: null, pits: null, live: null, inspection: null, error: null },
+    nexus: { ...event.nexus, map: null, pits: null, live: null, inspection: null, alliances: null, error: null },
   });
   return syncEvent(eventKey);
 }

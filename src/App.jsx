@@ -12,7 +12,7 @@ import { TeamLabelsProvider } from './lib/teamLabels.js';
 //   #/settings
 //   #/event/:key[/tab/:tab]         event tabs
 //   #/event/:key/team/:number
-//   #/event/:key/ticket/:id         (id "new", "followup" or "import", optional /:team)
+//   #/event/:key/ticket/:id         (id "new", "followup", "import" or "copy", optional /:team)
 export default function App() {
   const [section, key, kind, a, b] = useRoute();
   let page = <Home />;

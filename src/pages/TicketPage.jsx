@@ -17,7 +17,7 @@ import {
   ticketToText,
 } from '../lib/logic.js';
 import { goBack, nav } from '../lib/router.js';
-import { clearDraft, readDraft } from '../lib/nexusImport.js';
+import { clearDraft, readDraft, stashDraft } from '../lib/nexusImport.js';
 import { useTeamLabels } from '../lib/teamLabels.js';
 import { copyText, toast } from '../lib/util.js';
 
@@ -40,7 +40,9 @@ const blank = (eventKey, team, followUp) => ({
 export default function TicketPage({ eventKey, id, presetTeam }) {
   const isFollowUp = id === 'followup';
   const isImport = id === 'import';
-  const isNew = id === 'new' || isFollowUp || isImport;
+  // "Copy as new ticket": a new ticket pre-filled from another one (via the draft mailbox).
+  const isCopy = id === 'copy';
+  const isNew = id === 'new' || isFollowUp || isImport || isCopy;
   const event = useLive(() => db.get('events', eventKey), [eventKey]);
   const existing = useLive(() => (isNew ? Promise.resolve(null) : db.get('tickets', id)), [id]);
   const allTickets = useLive(() => db.all('tickets'), []);
@@ -80,7 +82,7 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
     if (form || existing === undefined || event === undefined) return;
     if (isNew) {
       const f = blank(eventKey, presetTeam, isFollowUp);
-      const draft = isImport ? readDraft() : null;
+      const draft = isImport || isCopy ? readDraft() : null;
       if (draft) {
         Object.assign(f, {
           team: draft.team ?? '',
@@ -88,6 +90,8 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
           description: draft.description ?? '',
           tags: draft.tags ?? [],
           lastMatch: draft.lastMatch ?? '',
+          priority: draft.priority ?? 'normal',
+          links: draft.links ?? [],
         });
         if (draft.lastMatch) setMatchTouched(true);
       }
@@ -102,7 +106,7 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
       setTeamText(existing.team ? labels.num(existing.team) : '');
       setMatchTouched(true);
     }
-  }, [existing, event, form, isNew, isFollowUp, isImport, eventKey, presetTeam]);
+  }, [existing, event, form, isNew, isFollowUp, isImport, isCopy, eventKey, presetTeam]);
 
   const byId = useMemo(() => Object.fromEntries((allTickets ?? []).map((t) => [t.id, t])), [allTickets]);
   const knownTags = useMemo(() => {
@@ -214,8 +218,11 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
     const now = Date.now();
     const prevLinks = existing?.links ?? [];
     const ticketId = form.id ?? newId();
+    // Links only make sense within one team (a copy moved to another team drops its link).
+    const links = form.links.filter((l) => !byId[l] || byId[l].team === Number(form.team));
     const ticket = {
       ...form,
+      links,
       id: ticketId,
       seq: existing?.seq ?? form.seq ?? nextTicketSeq(allTickets, form.team, Number(eventKey.slice(0, 4))),
       title: form.title.trim(),
@@ -226,8 +233,8 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
         form.status === 'resolved' ? (existing?.status === 'resolved' ? existing.resolvedAt : now) : null,
     };
     // Keep links two-way.
-    const added = form.links.filter((l) => !prevLinks.includes(l));
-    const removed = prevLinks.filter((l) => !form.links.includes(l));
+    const added = links.filter((l) => !prevLinks.includes(l));
+    const removed = prevLinks.filter((l) => !links.includes(l));
     const others = [];
     for (const l of added) {
       const o = byId[l];
@@ -238,7 +245,7 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
       if (o) others.push({ ...o, links: (o.links ?? []).filter((x) => x !== ticketId) });
     }
     await db.putMany('tickets', [ticket, ...others]);
-    if (isImport) clearDraft();
+    if (isImport || isCopy) clearDraft();
     toast(isNew ? 'Ticket created' : 'Ticket saved');
     goBack(`/event/${eventKey}/tab/tickets`);
   }
@@ -255,6 +262,21 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
     goBack(`/event/${eventKey}/tab/tickets`);
   }
 
+  /** Opens a new ticket form pre-filled from this one: same team, title, description,
+   *  priority and tags, linked back to this ticket; status, resolution and match start fresh.
+   *  Nothing is saved until Create. */
+  function copyAsNew() {
+    stashDraft({
+      team: form.team,
+      title: form.title,
+      description: form.description,
+      priority: form.priority,
+      tags: form.tags,
+      links: [form.id],
+    });
+    nav(`/event/${eventKey}/ticket/copy`);
+  }
+
   async function copyTicket() {
     const snapshot = {
       ...form,
@@ -268,7 +290,7 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
   return (
     <>
       <TopBar
-        title={isFollowUp ? 'Flag for follow-up' : isImport ? 'Imported from Nexus' : isNew ? 'New ticket' : `Ticket ${ticketNumber(form, labels.num(form.team))}`}
+        title={isFollowUp ? 'Flag for follow-up' : isImport ? 'Imported from Nexus' : isCopy ? 'Copy of a ticket' : isNew ? 'New ticket' : `Ticket ${ticketNumber(form, labels.num(form.team))}`}
         subtitle={isNew ? event?.shortName : `Opened ${formatDateTime(form.createdAt)} · ${form.eventName ?? eventKey}`}
         back={() => goBack(`/event/${eventKey}/tab/tickets`)}
         actions={
@@ -435,6 +457,11 @@ export default function TicketPage({ eventKey, id, presetTeam }) {
           {!form.team && <span className="hint">Choose a team above first.</span>}
         </div>
 
+        {!isNew && (
+          <button className="btn block" onClick={copyAsNew}>
+            <Icon name="plus" size={20} /> Copy as new ticket
+          </button>
+        )}
         <button className="btn block" onClick={copyTicket}>
           <Icon name="copy" size={20} /> Copy ticket as text
         </button>

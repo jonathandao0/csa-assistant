@@ -140,7 +140,7 @@ public/                  favicon.svg, icons/ (192, 512, maskable 512)
   - `:tab` is one of `map`, `today`, `teams`, `tickets`, `ref`.
 - `#/event/:key/team/:number`
 - `#/event/:key/ticket/:id`
-  - `:id` can be `new`, `followup` or `import`, optionally followed by `/:team` to preset the team. `followup` pre-fills a normal-priority ticket tagged `Follow-up`; `import` pre-fills from a pasted Nexus Slack message. Both still require the user to review and save.
+  - `:id` can be `new`, `followup`, `import` or `copy`, optionally followed by `/:team` to preset the team. `followup` pre-fills a normal-priority ticket tagged `Follow-up`; `import` pre-fills from a pasted Nexus Slack message; `copy` pre-fills from another ticket ("Copy as new ticket"). All still require the user to review and save.
 
 `TeamPage` and `TicketPage` are keyed by their route parameters in `App.jsx`, so that moving
 between linked tickets remounts the page and resets the form.
@@ -171,6 +171,7 @@ Details of the `tickets` store:
 - **Links are two-way.** `TicketPage.save()` updates the other side of every link it adds or removes. `remove()` also cleans up the other side. The "Link a ticket" picker only ever offers the *same team's* other tickets (across any event) — cross-team linking isn't offered, since a continuing-issue link only makes sense within one team.
 - Ticket form field order (owner's choice): Team, Title, Description, Status, Priority, **Resolution notes**, Tags, Last match played, then Save.
 - On the ticket page, "Linked tickets" is shown after the Save button (not before), the Resolution notes box has its own small Copy button (copies just that text; disabled while empty), and "Copy ticket as text" is a full-width button at the very bottom of the page (not a top-bar icon) — both are deliberately placed for visibility rather than tucked above the fold with the edit fields.
+- **Copy as new ticket** (owner request, button above "Copy ticket as text" on a saved ticket): `copyAsNew()` hands team, title, description, priority, tags and a link back to the original to the ticket form at route id `copy` through the same one-slot draft mailbox as the Slack import (`stashDraft`/`readDraft`/`clearDraft`). Status, resolution notes and last match start fresh (last match auto-fills); it's created at the event in the route and gets the team's next `seq`. Nothing is saved until Create. `save()` drops links to tickets of a different team, so a copy moved to another team loses the link.
 - `eventName` is stored on the ticket itself, so history still reads correctly after its event is removed.
 - Tags are grouped into categories in `TAG_CATEGORIES` (Electrical, Software, Mechanical, Meta) purely for the picker UI; `PRESET_TAGS` is flattened from it. `Follow-up` is the Meta-category tag used by the "Flag for follow-up" flow.
 - **`seq`** is a per-team incremental ticket number, assigned once at creation via `nextTicketSeq()` (max existing `seq` for that team, across all events, plus one) and never changed after. `ticketNumber(ticket)` formats it as `"<team>-<seq>"` (e.g. `1005-1`), shown in `TicketRow` and the ticket page's title. Older tickets without a `seq` display `"<team>-?"`.
